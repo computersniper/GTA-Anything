@@ -1,0 +1,253 @@
+{
+  "schema_version": "0.1.0",
+  "meta": {
+    "id": "metro_shuttle_loop",
+    "name": "Los Santos Metro Shuttle Loop",
+    "version": "0.1.0",
+    "author": "GTA-Anything Clean-Room",
+    "license": "MIT",
+    "description": "Fixed-route 8-stop Los Santos urban circular shuttle operational loop with static sprite route selection, SafeModelStreamer vanilla fallback (bus/airbus), ordered stop dwell, NPC passenger boarding, fare tally, and deterministic WorldSession teardown.",
+    "source_kind": "spec_and_xml",
+    "target_editions": [
+      "enhanced_gen9",
+      "legacy_gen8"
+    ]
+  },
+  "loader_target": "shvdn_enhanced",
+  "inputs": {
+    "activation_key": "F9",
+    "modifier_key": "LeftShift",
+    "menu_library": "LemonUI",
+    "avoid_conflicts_with": [
+      "F4",
+      "Insert",
+      "F3",
+      "F8",
+      "B",
+      "N",
+      "E",
+      "Y"
+    ]
+  },
+  "ui_spec": {
+    "title": "LS Metro Shuttle Dispatch",
+    "subtitle": "Select circular route & transit coach class",
+    "preview_mode": "static_sprite"
+  },
+  "entities": [
+    {
+      "slot_id": "transit_coach_primary",
+      "role": "player_service_vehicle",
+      "vanilla_fallback_model": "bus",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 5000,
+      "is_player_vehicle": true
+    },
+    {
+      "slot_id": "airport_shuttle_express",
+      "role": "player_service_vehicle",
+      "vanilla_fallback_model": "airbus",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 5000,
+      "is_player_vehicle": true
+    },
+    {
+      "slot_id": "commuter_passenger",
+      "role": "boarding_npc",
+      "vanilla_fallback_model": "a_m_y_business_01",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 3000,
+      "is_player_vehicle": false
+    }
+  ],
+  "routes_or_zones": [
+    {
+      "track_id": "ls_downtown_loop",
+      "name": "Route 10 Downtown Circular Shuttle",
+      "mode": "ordered_stops",
+      "fare_or_reward": 15,
+      "allowed_vehicle_slots": [
+        "transit_coach_primary",
+        "airport_shuttle_express"
+      ],
+      "stops": [
+        {
+          "index": 0,
+          "name": "Dashound Bus Center Terminal",
+          "x": 436.2,
+          "y": -645.8,
+          "z": 28.7,
+          "dwell_seconds": 8
+        },
+        {
+          "index": 1,
+          "name": "Mission Row Textile Station",
+          "x": 411.5,
+          "y": -806.4,
+          "z": 29.3,
+          "dwell_seconds": 6
+        },
+        {
+          "index": 2,
+          "name": "Legion Square North Plaza",
+          "x": 215.4,
+          "y": -810.1,
+          "z": 30.7,
+          "dwell_seconds": 10
+        },
+        {
+          "index": 3,
+          "name": "Pillbox Hill Medical Center",
+          "x": 298.7,
+          "y": -584.2,
+          "z": 43.2,
+          "dwell_seconds": 8
+        },
+        {
+          "index": 4,
+          "name": "Alta Street Metro Hub",
+          "x": 238.1,
+          "y": -396.5,
+          "z": 45.3,
+          "dwell_seconds": 7
+        },
+        {
+          "index": 5,
+          "name": "Vinewood Boulevard West",
+          "x": 118.4,
+          "y": -210.8,
+          "z": 54.6,
+          "dwell_seconds": 6
+        },
+        {
+          "index": 6,
+          "name": "Rockford Hills Civic Center",
+          "x": -142.3,
+          "y": -382.9,
+          "z": 38.1,
+          "dwell_seconds": 8
+        },
+        {
+          "index": 7,
+          "name": "Little Seoul Transit Return",
+          "x": -305.6,
+          "y": -698.4,
+          "z": 32.8,
+          "dwell_seconds": 7
+        }
+      ]
+    }
+  ],
+  "state_machine": {
+    "initial_state": "Idle",
+    "cleanup_state": "Teardown",
+    "states": [
+      {
+        "name": "Idle",
+        "phase": "standby",
+        "description": "Mod loaded and standing by for LeftShift+F9 activation keybind."
+      },
+      {
+        "name": "MenuSelecting",
+        "phase": "ui",
+        "description": "Browsing Route 10 stops and coach classes via static sprite cards without spawning 3D vehicles."
+      },
+      {
+        "name": "ResourceStreaming",
+        "phase": "streaming",
+        "description": "Requesting transit bus/airbus and passenger ped models with timeout release and vanilla fallback."
+      },
+      {
+        "name": "SpawningShift",
+        "phase": "spawning",
+        "description": "Spawning service bus at Dashound Terminal, verifying non-null handle, registering lease in WorldSession, and seating driver."
+      },
+      {
+        "name": "ActiveRoute",
+        "phase": "operation",
+        "description": "Advancing through 8 ordered downtown stops, enforcing dwell timer, opening doors, boarding NPC passengers, and tallying fares."
+      },
+      {
+        "name": "ShiftSummary",
+        "phase": "completion",
+        "description": "Presenting shift passenger count and fare settlement before releasing leased entities."
+      },
+      {
+        "name": "Teardown",
+        "phase": "cleanup",
+        "description": "Invoking WorldSession.DisposeAll() to release leased bus, passenger peds, route blips, and model handles."
+      }
+    ],
+    "transitions": [
+      {
+        "from_state": "Idle",
+        "to_state": "MenuSelecting",
+        "trigger": "HotkeyPressed"
+      },
+      {
+        "from_state": "MenuSelecting",
+        "to_state": "Idle",
+        "trigger": "MenuCancelled"
+      },
+      {
+        "from_state": "MenuSelecting",
+        "to_state": "ResourceStreaming",
+        "trigger": "ShiftConfirmed"
+      },
+      {
+        "from_state": "ResourceStreaming",
+        "to_state": "SpawningShift",
+        "trigger": "ModelReadyOrFallback"
+      },
+      {
+        "from_state": "ResourceStreaming",
+        "to_state": "Teardown",
+        "trigger": "CriticalStreamFailure"
+      },
+      {
+        "from_state": "SpawningShift",
+        "to_state": "ActiveRoute",
+        "trigger": "DriverSeated"
+      },
+      {
+        "from_state": "SpawningShift",
+        "to_state": "Teardown",
+        "trigger": "SpawnReturnedNull"
+      },
+      {
+        "from_state": "ActiveRoute",
+        "to_state": "ShiftSummary",
+        "trigger": "FinalStopCompleted"
+      },
+      {
+        "from_state": "ActiveRoute",
+        "to_state": "Teardown",
+        "trigger": "ShiftAbortedOrVehicleDestroyed"
+      },
+      {
+        "from_state": "ShiftSummary",
+        "to_state": "Teardown",
+        "trigger": "SummaryAcknowledged"
+      },
+      {
+        "from_state": "Teardown",
+        "to_state": "Idle",
+        "trigger": "ResourcesReleased"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "source_file": "spec.md",
+      "locator": "L14-L28",
+      "extracted_fact": "Full transit operational lifecycle: static sprite route selection -> SafeModelStreamer with MarkAsNoLongerNeeded timeout fallback -> ordered stop dwell & passenger boarding -> fare tally -> WorldSession teardown.",
+      "confidence": 0.99
+    },
+    {
+      "source_file": "routes/ls_downtown_loop.xml",
+      "locator": "L2-L11",
+      "extracted_fact": "8-stop circular Los Santos downtown shuttle route (Dashound Terminal -> Mission Row -> Legion Square -> Pillbox Hill -> Alta -> Vinewood -> Rockford Hills -> Little Seoul) with $15 fare and 6-10s stop dwell.",
+      "confidence": 1.0
+    }
+  ]
+}

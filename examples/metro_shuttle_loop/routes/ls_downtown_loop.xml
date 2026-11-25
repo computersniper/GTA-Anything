@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Route id="ls_downtown_loop" name="Route 10 Downtown Circular Shuttle" mode="ordered_stops" fare="15" vehicle="transit_coach_primary" fallback_vehicle="bus">
+    <Stop index="0" name="Dashound Bus Center Terminal" x="436.2" y="-645.8" z="28.7" dwell="8" dwell_seconds="8" />
+    <Stop index="1" name="Mission Row Textile Station" x="411.5" y="-806.4" z="29.3" dwell="6" dwell_seconds="6" />
+    <Stop index="2" name="Legion Square North Plaza" x="215.4" y="-810.1" z="30.7" dwell="10" dwell_seconds="10" />
+    <Stop index="3" name="Pillbox Hill Medical Center" x="298.7" y="-584.2" z="43.2" dwell="8" dwell_seconds="8" />
+    <Stop index="4" name="Alta Street Metro Hub" x="238.1" y="-396.5" z="45.3" dwell="7" dwell_seconds="7" />
+    <Stop index="5" name="Vinewood Boulevard West" x="118.4" y="-210.8" z="54.6" dwell="6" dwell_seconds="6" />
+    <Stop index="6" name="Rockford Hills Civic Center" x="-142.3" y="-382.9" z="38.1" dwell="8" dwell_seconds="8" />
+    <Stop index="7" name="Little Seoul Transit Return" x="-305.6" y="-698.4" z="32.8" dwell="7" dwell_seconds="7" />
+</Route>

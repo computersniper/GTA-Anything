@@ -1,0 +1,104 @@
+# Mod Engineering Standard Operating Procedure (SOP): `{{MOD_NAME}}` (`{{MOD_ID}}`)
+
+> **Target Edition(s)**: `{{TARGET_EDITIONS}}` (`enhanced_gen9` / `legacy_gen8`)  
+> **Loader Chain**: `{{LOADER_TARGET}}` (`shvdn_enhanced` / `shvdn_v3` / `rph`)  
+> **Clean-Room License**: `{{LICENSE}}`
+
+---
+
+## Phase 0: Environment & Clean-Room Preflight (`gta-anything preflight`)
+
+- [ ] Execute preflight check:
+  ```bash
+  gta-anything --json preflight --hotkey {{ACTIVATION_KEY}}
+  ```
+- [ ] **System Telemetry**:
+  - Target disk free space (`>= 10.0 GB`): `{{DISK_FREE_GB}} GB`
+  - Available Windows commit memory (`>= 1536 MB` recommended, `>= 1024 MB` required): `{{COMMIT_AVAILABLE_MB}} MB`
+- [ ] **Dual Build Identity**:
+  - Disk Executable (`GTA5_Enhanced.exe` / `GTA5.exe`) Version: `{{EXE_VERSION}}`
+  - Script Hook V Internal Build Alias: `{{SHV_BUILD_ALIAS}}`
+- [ ] **Hotkey & Process Guard**:
+  - Running game processes cleared (`GTA5_Enhanced`, `GTA5`, `PlayGTAV`, `RAGEPluginHook`): `PASS`
+  - Activation keybind (`{{MODIFIER_KEY}} + {{ACTIVATION_KEY}}`) free of RPH (`F4`), SHVDN (`Insert`), Trainer (`F3`/`F8`), and LSPDFR (`B`/`N`/`E`/`Y`) conflicts: `PASS`
+
+---
+
+## Phase 1: Evidence-Backed Mechanism Extraction (`gta-anything extract`)
+
+- [ ] Extract `GameplayIR` from authorized inputs (`spec.md`, `routes/*.xml`, or source repository):
+  ```bash
+  gta-anything --json extract {{SOURCE_PATH}} -o gameplay_ir.json --edition {{PRIMARY_EDITION}}
+  ```
+- [ ] Verify every core state, route/zone, and entity slot is backed by an `EvidenceAnchor` (`source_file`, `locator`, `extracted_fact`, `confidence`).
+
+---
+
+## Phase 2: World-Model Mapping & Vanilla-First Baseline (`gta-anything validate-ir`)
+
+- [ ] Run static IR invariant validation:
+  ```bash
+  gta-anything --json validate-ir gameplay_ir.json
+  ```
+- [ ] Confirm all 5 hard invariants:
+  - [ ] Every `EntitySlot` has a valid `vanilla_fallback_model` (e.g., `bus`, `airbus`, `mule`, `benson`).
+  - [ ] `ui_spec.preview_mode` is `"static_sprite"` or `"static_metadata"` (**NEVER** `"live_3d_spawn"`).
+  - [ ] All states in `state_machine` are reachable from `initial_state` (`Idle`).
+  - [ ] Every `streaming`, `spawning`, `operation`, and `completion` state has a valid path to `cleanup_state` (`Teardown`).
+  - [ ] Clean-room license is valid (`{{LICENSE}}`).
+
+---
+
+## Phase 3: Clean-Room C# Transpilation (`gta-anything transpile`)
+
+- [ ] Generate C# mod project targeting `GtaAnything.Runtime`:
+  ```bash
+  gta-anything --json transpile gameplay_ir.json -o build/{{MOD_ID}}
+  ```
+- [ ] Verify generated artifacts:
+  - [ ] `{{MOD_CLASS_NAME}}.csproj` (with `GTAV_ENHANCED` / `GTAV_LEGACY` conditional compilation)
+  - [ ] `ModEntrypoint.cs` (using `WorldSession`, `OperationalStateMachine`, `SafeModelStreamer`, `DecoupledMenuController`, `PhasedJsonLogger`)
+  - [ ] `{{MOD_CLASS_NAME}}Config.json`
+  - [ ] `BUILD_AND_VERIFY.md`
+
+---
+
+## Phase 4: 5-Stage Gen8/Gen9 Asset Verification Gate (`gta-anything asset-check`)
+
+- [ ] Run static binary & DLC registration checks (Gate 1 & Gate 2):
+  ```bash
+  gta-anything --json asset-check build/{{MOD_ID}} --edition {{PRIMARY_EDITION}}
+  ```
+- [ ] Verify all 5 Asset Gates:
+  - [ ] **Gate 1 (Static Binary Audit)**: Gen9 `.yft` version == `171`, `.ytd` version == `5`; all `script_rt_*` dashboard textures use single-mip (`mip=1`) `B8G8R8A8_UNORM` (zero legacy `DXT1`).
+  - [ ] **Gate 2 (DLC Registration)**: `dlclist.xml` is well-formed XML and registers `dlcpacks:/<addon_name>/` inside isolated `mods/` copy.
+  - [ ] **Gate 3 (Engine Model Streaming)**: `SafeModelStreamer` enforces timeout (`stream_timeout_ms`), calls `MarkAsNoLongerNeeded()` on timeout, and falls back to `vanilla_fallback_model`.
+  - [ ] **Gate 4 (World Entity Spawning)**: `CreateVehicle` / `CreatePed` return handle verified non-null and `Exists() == true` before property access.
+  - [ ] **Gate 5 (Operational Interaction)**: Driver seating, door control, NPC boarding/interaction, and fare/reward accounting complete without stall.
+
+---
+
+## Phase 5: 7-Layer Acceptance Verification (`TEST.md`)
+
+- [ ] Complete L1–L7 verification in `TEST.md` (first on Vanilla-First Baseline, then with optional Add-on assets).
+
+---
+
+## Phase 6: Reversible Profile Isolation & Deployment (`gta-anything profile`)
+
+- [ ] Preview staging and activation with `--dry-run`:
+  ```bash
+  gta-anything --json profile stage {{PROFILE_NAME}} build/{{MOD_ID}} --game-dir "<GAME_DIR>" --dry-run
+  gta-anything --json profile switch {{PROFILE_NAME}} --game-dir "<GAME_DIR>" --dry-run
+  ```
+- [ ] Confirm rollback manifest (`sha256_map` and `operations`) is recorded for instant recovery.
+
+---
+
+## Phase 7: Phased Multi-Log Triage (`gta-anything diagnose`)
+
+- [ ] Correlate runtime logs and phased telemetry:
+  ```bash
+  gta-anything --json diagnose ScriptHookV.log ScriptHookVDotNet.log {{MOD_ID}}.telemetry.jsonl --commit-mb {{COMMIT_AVAILABLE_MB}}
+  ```
+- [ ] Confirm `highest_acceptance_layer_reached == 7` and zero unresolved `environment`, `loader`, `asset`, or `script_logic` issues.

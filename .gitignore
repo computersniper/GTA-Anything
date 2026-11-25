@@ -1,0 +1,54 @@
+# Local-only handover & sensitive environment notes (never publish to public repo)
+交接说明.txt
+*.local.md
+*.local.json
+.gta-anything-local/
+
+# Proprietary / Binary GTA & Modding Artifacts (Clean-Room Policy)
+*.rpf
+*.yft
+*.ytd
+*.ydr
+*.ydd
+*.ybn
+*.ymap
+*.ytyp
+*.asi
+*.dll
+*.exe
+*.pdb
+*.dmp
+*.mdmp
+
+# Runtime Logs & Deployment Backups
+*.log
+*.jsonl
+backups/
+parking/
+dist_mod/
+build_out/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# .NET / C#
+bin/
+obj/
+.vs/
+*.user
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/

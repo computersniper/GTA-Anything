@@ -1,0 +1,44 @@
+# 7-Layer Acceptance & Verification Plan (`TEST.md`): `{{MOD_NAME}}` (`{{MOD_ID}}`)
+
+## Part 1: Test & Acceptance Plan (Written Before Execution)
+
+### 1. Environment & Build Identity Baseline
+- **Target Edition**: `{{PRIMARY_EDITION}}` (`enhanced_gen9` / `legacy_gen8`)
+- **Executable Version (`exe_version`)**: `{{EXE_VERSION}}`
+- **Script Hook V Build Alias (`shv_build_alias`)**: `{{SHV_BUILD_ALIAS}}`
+- **Loader Chain**: `{{LOADER_TARGET}}`
+- **Available Disk Free Space**: `{{DISK_FREE_GB}} GB` (Threshold: `>= 10.0 GB`)
+- **Available Commit Memory**: `{{COMMIT_AVAILABLE_MB}} MB` (Threshold: `>= 1536 MB` warn / `>= 1024 MB` block)
+
+### 2. L1–L7 Acceptance Evidence Ladder (`ACCEPTANCE_LAYERS`)
+
+| Layer | Layer ID | Acceptance Criterion | Required Evidence / Verification Method | Status |
+| :---: | :--- | :--- | :--- | :---: |
+| **L1** | `static_integrity` | `GameplayIR` passes `validate-ir`; external `.json`/`.xml` configs are well-formed; assets pass Gate 1 (`.yft` v171 / `.ytd` v5 / `script_rt_*` `B8G8R8A8_UNORM`) & Gate 2 (`dlclist.xml`) | `gta-anything --json validate-ir` & `gta-anything --json asset-check` exit code `0` (`ok: true`) | `[ ]` |
+| **L2** | `loader_recognition` | ASI Loader / `ScriptHookV.dll` / `ScriptHookVDotNet.asi` (or `RAGEPluginHook.exe`) recognizes game build and discovers mod assembly | `ScriptHookV.log` & `ScriptHookVDotNet.log` show assembly load without `BadImageFormatException` or version mismatch | `[ ]` |
+| **L3** | `script_initialized` | `ModEntrypoint` constructor & `OnStartup` succeed; config loaded; activation hotkey bound | Telemetry log `{{MOD_ID}}.telemetry.jsonl` records `{"layer": 3, "phase": "standby", "state": "Idle"}` | `[ ]` |
+| **L4** | `menu_responsive` | Pressing `{{MODIFIER_KEY}} + {{ACTIVATION_KEY}}` opens menu without hotkey collision; rapid index scrolling renders static metadata/sprite only (zero 3D vehicle spawns, zero `NullReferenceException`) | Telemetry log records `{"layer": 4, "phase": "ui", "state": "MenuSelecting", "preview_mode": "static_sprite"}` | `[ ]` |
+| **L5** | `session_started` | Confirming shift/dispatch streams vehicle & ped models via `SafeModelStreamer` (releasing timed-out handles with `MarkAsNoLongerNeeded` and falling back to `vanilla_fallback_model` if needed) and leases non-null entities in `WorldSession` | Telemetry log records `{"layer": 5, "phase": "spawning", "vehicle_handle_valid": true}` | `[ ]` |
+| **L6** | `core_loop_completed` | Full operational loop completes: ordered stop arrival, dwell timer, door open/close, NPC passenger boarding or coordinator interaction, and fare/reward settlement | Telemetry log records `{"layer": 6, "phase": "completion", "state": "ShiftSummary"}` | `[ ]` |
+| **L7** | `clean_teardown` | Normal shift completion, user abort, or script reload transitions to `Teardown` and invokes `WorldSession.DisposeAll()`, releasing all leased vehicles, peds, blips, and model handles cleanly | Telemetry log records `{"layer": 7, "phase": "cleanup", "state": "Teardown", "leased_entities_remaining": 0}` | `[ ]` |
+
+### 3. Automated Offline Verification Suite Plan
+- **IR & World Mapper Unit Tests**: Validate `gameplay_ir.json` schema, vanilla fallback resolution, rejection of `live_3d_spawn`, and BFS reachability to `Teardown`.
+- **Preflight & Asset Gate Tests**: Validate dual build ID parsing, Gen9 `.yft`(v171)/`.ytd`(v5) vs. Gen8 `.yft`(v162) detection, and `script_rt_*` `DXT1` vs. `B8G8R8A8_UNORM` audit rules.
+- **Transpiler & Reversible Profile Tests**: Validate `.csproj` + `ModEntrypoint.cs` generation and atomic staging, dry-run, profile switching, lock-file protection, and SHA-256 rollback.
+- **Log Correlator & CLI E2E Tests**: Validate `gta-anything --json pipeline` and `diagnose` root-cause classification (`environment`, `loader`, `asset`, `script_logic`).
+
+---
+
+## Part 2: Verification & Execution Report (Appended After Execution)
+
+### 1. Offline CLI Pipeline & Test Execution Output
+```text
+{{PYTEST_AND_CLI_OUTPUT}}
+```
+
+### 2. Multi-Log Diagnostic Summary (`gta-anything --json diagnose`)
+- **Detected Build Alias**: `{{DETECTED_BUILD_ALIAS}}`
+- **Highest Acceptance Layer Reached**: `L{{HIGHEST_LAYER}}`
+- **Issues Detected**: `{{ISSUES_SUMMARY}}`
+- **Clean-Room Hygiene Check**: Zero proprietary binaries (`.dll`/`.asi`/`.rpf`/`.yft`/`.ytd`), zero personal machine paths.

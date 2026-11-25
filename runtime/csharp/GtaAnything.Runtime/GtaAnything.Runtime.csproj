@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>GtaAnything.Runtime</RootNamespace>
+    <AssemblyName>GtaAnything.Runtime</AssemblyName>
+    <Version>0.1.0</Version>
+    <Authors>GTA-Anything Clean-Room Contributors</Authors>
+    <Description>Clean-Room C# Runtime Compatibility, Lifecycle, Safe Model Streaming, Decoupled UI, and 7-Layer Telemetry SDK for GTA-Anything (Gen8 Legacy &amp; Gen9 Enhanced).</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <Deterministic>true</Deterministic>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <!-- Edition & Loader Conditional Compilation Presets -->
+  <PropertyGroup Condition="'$(GtaEdition)' == 'Legacy' Or '$(GtaEdition)' == 'Gen8'">
+    <DefineConstants>$(DefineConstants);GTAV_LEGACY;USE_SHVDN</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GtaEdition)' == '' Or '$(GtaEdition)' == 'Enhanced' Or '$(GtaEdition)' == 'Gen9'">
+    <DefineConstants>$(DefineConstants);GTAV_ENHANCED;USE_SHVDN</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GtaLoader)' == 'RPH'">
+    <DefineConstants>$(DefineConstants);USE_RPH</DefineConstants>
+  </PropertyGroup>
+
+</Project>

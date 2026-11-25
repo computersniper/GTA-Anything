@@ -1,0 +1,221 @@
+{
+  "schema_version": "0.1.0",
+  "meta": {
+    "id": "harbor_courier_dispatch",
+    "name": "Port of Los Santos Harbor Courier Dispatch",
+    "version": "0.1.0",
+    "author": "GTA-Anything Clean-Room",
+    "license": "MIT",
+    "description": "On-duty/off-duty Port of Los Santos commercial courier dispatch loop: go on duty via static metadata menu -> stream mule/benson service truck & dock coordinator NPC -> receive dispatch callout -> drive to inspection zones -> interact with coordinator -> resolve callout -> clean off-duty WorldSession teardown.",
+    "source_kind": "spec_markdown",
+    "target_editions": [
+      "enhanced_gen9",
+      "legacy_gen8"
+    ]
+  },
+  "loader_target": "shvdn_enhanced",
+  "inputs": {
+    "activation_key": "F10",
+    "modifier_key": "LeftControl",
+    "menu_library": "LemonUI",
+    "avoid_conflicts_with": [
+      "F4",
+      "Insert",
+      "F3",
+      "F8",
+      "B",
+      "N",
+      "E",
+      "Y"
+    ]
+  },
+  "ui_spec": {
+    "title": "Harbor Logistics Dispatch",
+    "subtitle": "Toggle on-duty status & select commercial freight vehicle",
+    "preview_mode": "static_metadata"
+  },
+  "entities": [
+    {
+      "slot_id": "freight_box_primary",
+      "role": "player_service_vehicle",
+      "vanilla_fallback_model": "mule",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 5000,
+      "is_player_vehicle": true
+    },
+    {
+      "slot_id": "heavy_cargo_carrier",
+      "role": "player_service_vehicle",
+      "vanilla_fallback_model": "benson",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 5000,
+      "is_player_vehicle": true
+    },
+    {
+      "slot_id": "dock_coordinator_npc",
+      "role": "inspection_coordinator_npc",
+      "vanilla_fallback_model": "s_m_m_dockwork_01",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 3000,
+      "is_player_vehicle": false
+    }
+  ],
+  "routes_or_zones": [
+    {
+      "track_id": "port_ls_inspection_circuit",
+      "name": "Port of Los Santos Container & Customs Dispatch",
+      "mode": "dispatch_zones",
+      "fare_or_reward": 120,
+      "allowed_vehicle_slots": [
+        "freight_box_primary",
+        "heavy_cargo_carrier"
+      ],
+      "stops": [
+        {
+          "index": 0,
+          "name": "Elysian Island Logistics Staging Yard",
+          "x": 132.4,
+          "y": -3092.6,
+          "z": 5.9,
+          "dwell_seconds": 8
+        },
+        {
+          "index": 1,
+          "name": "Pier 400 Customs Inspection Bay",
+          "x": 348.2,
+          "y": -2988.4,
+          "z": 5.9,
+          "dwell_seconds": 12
+        },
+        {
+          "index": 2,
+          "name": "Terminal Gantry Crane Transfer Zone",
+          "x": 914.5,
+          "y": -2976.1,
+          "z": 5.9,
+          "dwell_seconds": 10
+        },
+        {
+          "index": 3,
+          "name": "South Port Outbound Clearance Gate",
+          "x": 1186.0,
+          "y": -3112.8,
+          "z": 5.8,
+          "dwell_seconds": 8
+        }
+      ]
+    }
+  ],
+  "state_machine": {
+    "initial_state": "Idle",
+    "cleanup_state": "Teardown",
+    "states": [
+      {
+        "name": "Idle",
+        "phase": "standby",
+        "description": "Off-duty standby, waiting for LeftControl+F10 dispatch terminal hotkey."
+      },
+      {
+        "name": "MenuSelecting",
+        "phase": "ui",
+        "description": "Reviewing harbor dispatch manifest and truck class via static metadata cards without spawning 3D vehicles."
+      },
+      {
+        "name": "ResourceStreaming",
+        "phase": "streaming",
+        "description": "Streaming mule/benson service vehicle and dock coordinator NPC models with timeout release and vanilla fallback."
+      },
+      {
+        "name": "SpawningShift",
+        "phase": "spawning",
+        "description": "Spawning service truck at Elysian Logistics Yard, verifying non-null handle, registering lease in WorldSession, and assigning dispatch callout."
+      },
+      {
+        "name": "ActiveDispatch",
+        "phase": "operation",
+        "description": "Driving service vehicle to inspection zones, holding in customs bay, interacting with NPC coordinator, and resolving callouts."
+      },
+      {
+        "name": "DispatchSummary",
+        "phase": "completion",
+        "description": "Displaying resolved callout count and harbor clearance payout before off-duty cleanup."
+      },
+      {
+        "name": "Teardown",
+        "phase": "cleanup",
+        "description": "Going off duty and invoking WorldSession.DisposeAll() to release leased truck, coordinator NPCs, blips, and model handles."
+      }
+    ],
+    "transitions": [
+      {
+        "from_state": "Idle",
+        "to_state": "MenuSelecting",
+        "trigger": "HotkeyPressed"
+      },
+      {
+        "from_state": "MenuSelecting",
+        "to_state": "Idle",
+        "trigger": "MenuCancelled"
+      },
+      {
+        "from_state": "MenuSelecting",
+        "to_state": "ResourceStreaming",
+        "trigger": "OnDutyConfirmed"
+      },
+      {
+        "from_state": "ResourceStreaming",
+        "to_state": "SpawningShift",
+        "trigger": "ModelReadyOrFallback"
+      },
+      {
+        "from_state": "ResourceStreaming",
+        "to_state": "Teardown",
+        "trigger": "CriticalStreamFailure"
+      },
+      {
+        "from_state": "SpawningShift",
+        "to_state": "ActiveDispatch",
+        "trigger": "CalloutAssigned"
+      },
+      {
+        "from_state": "SpawningShift",
+        "to_state": "Teardown",
+        "trigger": "SpawnReturnedNull"
+      },
+      {
+        "from_state": "ActiveDispatch",
+        "to_state": "DispatchSummary",
+        "trigger": "CalloutResolved"
+      },
+      {
+        "from_state": "ActiveDispatch",
+        "to_state": "Teardown",
+        "trigger": "OffDutyOrVehicleDestroyed"
+      },
+      {
+        "from_state": "DispatchSummary",
+        "to_state": "Teardown",
+        "trigger": "SummaryAcknowledged"
+      },
+      {
+        "from_state": "Teardown",
+        "to_state": "Idle",
+        "trigger": "ResourcesReleased"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "source_file": "spec.md",
+      "locator": "L14-L28",
+      "extracted_fact": "On-duty/off-duty dispatch operational loop: go on duty -> receive dispatch callout -> drive mule/benson service vehicle to inspection zone -> interact with NPC coordinator -> resolve callout -> go off duty with clean entity teardown.",
+      "confidence": 0.99
+    },
+    {
+      "source_file": "spec.md",
+      "locator": "L40-L50",
+      "extracted_fact": "4 Port of Los Santos dispatch inspection zones (Elysian Staging Yard, Pier 400 Customs Bay, Terminal Gantry Crane, South Port Clearance Gate) with $120 callout reward.",
+      "confidence": 0.98
+    }
+  ]
+}
