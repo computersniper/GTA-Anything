@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 88" width="100%" height="88" role="img" aria-label="GTA-Anything Los Santos Street HUD">
+  <defs>
+    <linearGradient id="asphaltBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09090d"/>
+      <stop offset="50%" stop-color="#111218"/>
+      <stop offset="100%" stop-color="#0a0a0f"/>
+    </linearGradient>
+    <linearGradient id="goldFrame" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4AF37"/>
+      <stop offset="50%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#FF8C00"/>
+    </linearGradient>
+    <linearGradient id="respectBar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1f6f43"/>
+      <stop offset="100%" stop-color="#3bd16f"/>
+    </linearGradient>
+    <linearGradient id="armorBar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1c6ea4"/>
+      <stop offset="100%" stop-color="#38b6ff"/>
+    </linearGradient>
+    <filter id="hudShadow" x="-5%" y="-10%" width="110%" height="130%">
+      <feDropShadow dx="2" dy="3" stdDeviation="2" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+
+  <!-- Outer GTA Comic Frame -->
+  <rect x="3" y="3" width="914" height="82" rx="6" fill="url(#asphaltBg)" stroke="#000000" stroke-width="5"/>
+  <rect x="6" y="6" width="908" height="76" rx="4" fill="none" stroke="url(#goldFrame)" stroke-width="2" stroke-opacity="0.85"/>
+
+  <!-- Subtle diagonal street hazard stripes on far left -->
+  <g opacity="0.14">
+    <polygon points="10,8 28,8 14,80 10,80" fill="#FFD700"/>
+    <polygon points="36,8 54,8 40,80 22,80" fill="#FFD700"/>
+    <polygon points="62,8 80,8 66,80 48,80" fill="#FFD700"/>
+  </g>
+
+  <!-- SLOT 1: Weapon / Agent Tool Slot -->
+  <g transform="translate(20, 14)" filter="url(#hudShadow)">
+    <rect x="0" y="0" width="210" height="60" rx="4" fill="#161821" stroke="#2c3040" stroke-width="2"/>
+    <rect x="0" y="0" width="6" height="60" rx="2" fill="#FF8C00"/>
+    <text x="16" y="19" fill="#FF8C00" font-family="'Arial Black', 'Impact', 'Segoe UI Black', sans-serif" font-size="10" letter-spacing="1.5">EQUIPPED TOOL // 街头主武器</text>
+    <text x="16" y="39" fill="#FFFFFF" font-family="'Consolas', 'Courier New', monospace" font-weight="bold" font-size="15" letter-spacing="0.5">[CLI-HARNESS v0.1]</text>
+    <text x="16" y="53" fill="#9ca3af" font-family="'Consolas', 'Courier New', monospace" font-size="10">GEN9 v171 | GEN8 | --json</text>
+  </g>
+
+  <!-- SLOT 2: Wanted Stars (5-Star Asset & Safety Gate Cleared) -->
+  <g transform="translate(244, 14)" filter="url(#hudShadow)">
+    <rect x="0" y="0" width="215" height="60" rx="4" fill="#161821" stroke="#2c3040" stroke-width="2"/>
+    <text x="14" y="19" fill="#D4AF37" font-family="'Arial Black', 'Impact', 'Segoe UI Black', sans-serif" font-size="10" letter-spacing="1.4">5-STAR ASSET GATE // 通缉门禁</text>
+    <text x="12" y="47" fill="#FFD700" stroke="#000000" stroke-width="1.2" font-family="'Segoe UI Symbol', 'Arial Black', sans-serif" font-size="27" letter-spacing="4">★★★★★</text>
+    <rect x="155" y="27" width="48" height="20" rx="3" fill="#2E8B57" stroke="#000000" stroke-width="1.2"/>
+    <text x="179" y="41" text-anchor="middle" fill="#FFFFFF" font-family="'Arial Black', sans-serif" font-size="10">CLEAR</text>
+  </g>
+
+  <!-- SLOT 3: GTA Cash Counter -->
+  <g transform="translate(473, 14)" filter="url(#hudShadow)">
+    <rect x="0" y="0" width="195" height="60" rx="4" fill="#161821" stroke="#2c3040" stroke-width="2"/>
+    <text x="183" y="19" text-anchor="end" fill="#86efac" font-family="'Arial Black', 'Impact', sans-serif" font-size="10" letter-spacing="1.2">CLEAN-ROOM BANK // 零污染</text>
+    <text x="183" y="49" text-anchor="end" fill="#3bd16f" stroke="#000000" stroke-width="1.5" font-family="'Impact', 'Arial Black', 'Consolas', sans-serif" font-size="30" letter-spacing="1.5">$00,250,100</text>
+  </g>
+
+  <!-- SLOT 4: Mission Passed / Respect +100 & Armor Bar -->
+  <g transform="translate(682, 14)" filter="url(#hudShadow)">
+    <rect x="0" y="0" width="218" height="60" rx="4" fill="#161821" stroke="#2c3040" stroke-width="2"/>
+    <text x="14" y="20" fill="#FFD700" font-family="'Impact', 'Arial Black', sans-serif" font-size="13" letter-spacing="1.2">MISSION PASSED! · RESPECT +</text>
+
+    <!-- Respect Progress Bar -->
+    <rect x="14" y="27" width="190" height="10" rx="2" fill="#0b0c10" stroke="#000000" stroke-width="1"/>
+    <rect x="15" y="28" width="188" height="8" rx="1.5" fill="url(#respectBar)"/>
+    <text x="109" y="35" text-anchor="middle" fill="#000000" font-family="'Arial Black', sans-serif" font-size="7.5" font-weight="900">RESPECT +100 (25/25 TESTS)</text>
+
+    <!-- WorldSession Armor / Zero-Leak Bar -->
+    <rect x="14" y="42" width="190" height="10" rx="2" fill="#0b0c10" stroke="#000000" stroke-width="1"/>
+    <rect x="15" y="43" width="188" height="8" rx="1.5" fill="url(#armorBar)"/>
+    <text x="109" y="50" text-anchor="middle" fill="#000000" font-family="'Arial Black', sans-serif" font-size="7.5" font-weight="900">SAFEHOUSE ARMOR 100% (L1-L7)</text>
+  </g>
+</svg>
