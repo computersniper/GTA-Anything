@@ -40,6 +40,35 @@ def _emit(
             click.echo(line)
 
 
+def _load_ir(ir_path: Path) -> GameplayIR:
+    """Load GameplayIR from a .json file or extract it from spec.md / source directory."""
+    if ir_path.is_file() and ir_path.suffix.lower() == ".json":
+        return GameplayIR.from_json(ir_path.read_text(encoding="utf-8"))
+    return extract_gameplay_ir(ir_path)
+
+
+def _has_rebindable_keybind_conflict(conflict_report: dict[str, Any]) -> bool:
+    """Return True if dimensions['keybinds'] has any BLOCKING or CONTEXT_WARNING finding."""
+    kb = conflict_report.get("dimensions", {}).get("keybinds", {})
+    if int(kb.get("blocking_count", 0)) > 0 or int(kb.get("context_warning_count", 0)) > 0:
+        return True
+    for c in kb.get("conflicts", []):
+        if str(c.get("severity", "")).upper() in {"BLOCKING", "CONTEXT_WARNING"}:
+            return True
+    return False
+
+
+def _sanitize_preflight_for_portable_json(report: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of preflight report with portable relative exe_path (no host absolute paths)."""
+    sanitized = dict(report)
+    game = dict(sanitized.get("game", {}))
+    raw_exe = game.get("exe_path")
+    if isinstance(raw_exe, str) and raw_exe:
+        game["exe_path"] = Path(raw_exe).name
+    sanitized["game"] = game
+    return sanitized
+
+
 @click.group(invoke_without_command=True)
 @click.option(
     "--json",
@@ -66,6 +95,8 @@ def cli(ctx: click.Context, json_output: bool) -> None:
                         "version": __version__,
                         "commands": [
                             "preflight",
+                            "host-scan",
+                            "conflict-check",
                             "extract",
                             "validate-ir",
                             "transpile",
@@ -146,6 +177,210 @@ def preflight_cmd(
         human.append(f"  WARN: {w}")
     for err in report.get("errors", []):
         human.append(f"  ERROR: {err}")
+    _emit(ctx, report, human, local_json)
+
+
+@cli.command("host-scan")
+@click.option(
+    "--game-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to GTA V installation directory to scan active/parked profiles, .ini keybinds, and .asi/.dll ABI.",
+)
+@click.option(
+    "--no-inactive",
+    is_flag=True,
+    default=False,
+    help="Skip scanning parked profiles under GTA5-Profiles/Inactive.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def host_scan_cmd(
+    ctx: click.Context,
+    game_dir: Path | None,
+    no_inactive: bool,
+    local_json: bool,
+) -> None:
+    """Phase 0.5: Read-only snapshot of host profiles, installed .ini keybinds, .asi/.dll versions, and Top 5 free chords."""
+    from gta_anything.conflict.arbitrator import inspect_assembly_abi_conflicts
+    from gta_anything.conflict.keybind_scanner import (
+        recommend_safe_chords,
+        scan_installed_keybinds,
+    )
+    from gta_anything.preflight.checker import run_preflight
+
+    preflight_raw = run_preflight(game_dir=game_dir)
+    preflight_report = _sanitize_preflight_for_portable_json(preflight_raw)
+
+    game_exists = bool(game_dir is not None and game_dir.exists() and game_dir.is_dir())
+    if game_exists and game_dir is not None:
+        keybind_registry = scan_installed_keybinds(
+            game_dir, include_inactive_profiles=not no_inactive
+        )
+        assemblies_abi = inspect_assembly_abi_conflicts(game_dir)
+    else:
+        keybind_registry = {
+            "ok": True,
+            "active_profile_mode": None,
+            "profiles_scanned": [],
+            "scanned_files": [],
+            "bindings": [],
+            "occupied_active_chords": [],
+            "occupied_all_chords": [],
+            "summary": {
+                "total_bindings": 0,
+                "active_bindings": 0,
+                "inactive_bindings": 0,
+                "scanned_file_count": 0,
+            },
+        }
+        assemblies_abi = {
+            "ok": True,
+            "loader_target": "shvdn_enhanced",
+            "requested_menu_library": "LemonUI",
+            "active_profile_mode": None,
+            "active_loader_chains": [],
+            "parked_profiles_with_target_loader": [],
+            "loader_chain_matched": True,
+            "coexistence_warning": False,
+            "installed_assemblies": [],
+            "ui_libraries": [],
+            "conflicts": [],
+            "blocking_count": 0,
+            "warning_count": 0,
+        }
+
+    safe_chords = recommend_safe_chords(scanned_registry=keybind_registry, count=5)
+    active_mode = (
+        keybind_registry.get("active_profile_mode")
+        or preflight_report.get("active_profile_mode")
+        or assemblies_abi.get("active_profile_mode")
+    )
+
+    payload: dict[str, Any] = {
+        "ok": bool(preflight_report.get("ok", True)),
+        "active_profile_mode": active_mode,
+        "profiles_scanned": keybind_registry.get("profiles_scanned", []),
+        "preflight": preflight_report,
+        "keybinds": keybind_registry,
+        "assemblies_abi": assemblies_abi,
+        "recommended_safe_chords": safe_chords,
+    }
+    kb_summary = keybind_registry.get("summary", {})
+    top_chords_str = ", ".join(c.get("canonical_chord", "") for c in safe_chords)
+    human = [
+        f"[Host-Scan] ok={payload['ok']} | active_profile={active_mode or 'unknown'} | "
+        f"profiles={', '.join(payload['profiles_scanned']) or 'none'}",
+        f"  Keybinds: {kb_summary.get('total_bindings', 0)} total "
+        f"({kb_summary.get('active_bindings', 0)} active, {kb_summary.get('inactive_bindings', 0)} inactive) "
+        f"across {kb_summary.get('scanned_file_count', 0)} files",
+        f"  Assemblies: {len(assemblies_abi.get('installed_assemblies', []))} .asi/.dll | "
+        f"UI libs={len(assemblies_abi.get('ui_libraries', []))} | "
+        f"ABI conflicts={len(assemblies_abi.get('conflicts', []))}",
+        f"  Top 5 Free Chords: {top_chords_str or 'none'}",
+    ]
+    _emit(ctx, payload, human, local_json)
+
+
+@cli.command("conflict-check")
+@click.argument("ir_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--game-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional path to GTA V installation directory for live read-only 5-dimension conflict analysis.",
+)
+@click.option(
+    "--auto-rebind",
+    is_flag=True,
+    default=False,
+    help="Automatically rebind activation_key/modifier_key to the #1 zero-conflict chord if keybind conflicts exist.",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_ir_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional output path to write the rebound Gameplay IR JSON (avoids mutating input fixture files).",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def conflict_check_cmd(
+    ctx: click.Context,
+    ir_path: Path,
+    game_dir: Path | None,
+    auto_rebind: bool,
+    output_ir_path: Path | None,
+    local_json: bool,
+) -> None:
+    """Phase 2B: Run 5-Dimension Mod Conflict Arbitration (Keybinds, ABI, Spatial Turf, DLC/JOAAT, Resource Budget)."""
+    from gta_anything.conflict.arbitrator import analyze_mod_conflicts
+
+    ir = _load_ir(ir_path)
+    report = analyze_mod_conflicts(ir, game_dir=game_dir)
+
+    auto_rebound = False
+    rebind_applied: dict[str, Any] | None = None
+    rebound_ir_dict: dict[str, Any] | None = None
+
+    if auto_rebind:
+        rec = report.get("recommended_rebind")
+        if _has_rebindable_keybind_conflict(report) and rec is not None:
+            orig_inputs = {
+                "activation_key": ir.inputs.activation_key,
+                "modifier_key": ir.inputs.modifier_key,
+            }
+            ir.inputs.activation_key = str(rec["activation_key"])
+            ir.inputs.modifier_key = rec.get("modifier_key")
+            auto_rebound = True
+            rebind_applied = {
+                "from": orig_inputs,
+                "to": {
+                    "activation_key": ir.inputs.activation_key,
+                    "modifier_key": ir.inputs.modifier_key,
+                    "canonical_chord": rec.get("canonical_chord"),
+                },
+            }
+            if output_ir_path is not None:
+                output_ir_path.parent.mkdir(parents=True, exist_ok=True)
+                output_ir_path.write_text(ir.to_json(indent=2), encoding="utf-8")
+            else:
+                rebound_ir_dict = ir.to_dict()
+
+            # Re-evaluate to confirm 0 keybind conflicts after rebind
+            report = analyze_mod_conflicts(ir, game_dir=game_dir)
+        elif output_ir_path is not None:
+            output_ir_path.parent.mkdir(parents=True, exist_ok=True)
+            output_ir_path.write_text(ir.to_json(indent=2), encoding="utf-8")
+
+    report["auto_rebound"] = auto_rebound
+    report["rebind_applied"] = rebind_applied
+    report["output_ir_path"] = str(output_ir_path) if output_ir_path is not None else None
+    if rebound_ir_dict is not None:
+        report["rebound_ir"] = rebound_ir_dict
+
+    dims = report.get("dimensions", {})
+    kb = dims.get("keybinds", {})
+    abi = dims.get("assemblies_abi", {})
+    sp = dims.get("spatial_turf", {})
+    dlc = dims.get("dlc_and_models", {})
+    human = [
+        f"[Conflict-Check] ok={report.get('ok')} | mod_id={report.get('mod_id')} | "
+        f"verdict={report.get('deployment_verdict')} | blocking={report.get('has_blocking_conflicts')} | "
+        f"auto_rebound={auto_rebound}",
+        f"  Keybinds: chord={kb.get('canonical_chord')} | blocking={kb.get('blocking_count', 0)} | "
+        f"warnings={kb.get('context_warning_count', 0)}",
+        f"  ABI: ok={abi.get('ok')} | active_profile={abi.get('active_profile_mode')} | "
+        f"conflicts={len(abi.get('conflicts', []))}",
+        f"  Spatial: overlaps={sp.get('overlap_count', 0)} | DLC/Models: collisions={dlc.get('collision_count', 0)}",
+    ]
+    if rebind_applied is not None:
+        human.append(
+            f"  Rebound: {rebind_applied['from']} -> {rebind_applied['to']}"
+        )
+    for step in report.get("agent_action_plan", []):
+        human.append(f"  -> {step}")
     _emit(ctx, report, human, local_json)
 
 
@@ -771,7 +1006,13 @@ def catalog_cmd(
     "--game-dir",
     type=click.Path(path_type=Path),
     default=None,
-    help="Optional GTA V installation directory when using --compile to link real ScriptHookVDotNet3.dll / RAGEPluginHook.dll.",
+    help="Optional GTA V installation directory for 5-dimension conflict analysis and live SHVDN3/RPH DLL linking.",
+)
+@click.option(
+    "--auto-rebind",
+    is_flag=True,
+    default=False,
+    help="Automatically rebind conflicting IR hotkeys to a zero-conflict chord before transpiling and compiling.",
 )
 @click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
 @click.pass_context
@@ -782,17 +1023,50 @@ def pipeline_cmd(
     edition: str,
     do_compile: bool,
     game_dir: Path | None,
+    auto_rebind: bool,
     local_json: bool,
 ) -> None:
-    """Run end-to-end pipeline: Extract -> Validate-IR -> Transpile [-> Compile] -> Asset-Check -> Simulate -> Visualize."""
+    """Run end-to-end pipeline: Extract -> Validate-IR [-> Conflict-Check] -> Transpile [-> Compile] -> Asset-Check -> Simulate -> Visualize."""
     from gta_anything.assets.auditor import audit_assets
     from gta_anything.compiler.dotnet_builder import compile_csharp_mod
+    from gta_anything.conflict.arbitrator import analyze_mod_conflicts
     from gta_anything.simulator.world_sim import simulate_gameplay_ir
     from gta_anything.visualizer.radar_html import render_ir_dashboard
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    ir = extract_gameplay_ir(source_path, target_edition=edition)
+    if source_path.is_file() and source_path.suffix.lower() == ".json":
+        ir = GameplayIR.from_json(source_path.read_text(encoding="utf-8"))
+    else:
+        ir = extract_gameplay_ir(source_path, target_edition=edition)
     ir_out_path = output_dir / "gameplay_ir.json"
+
+    conflict_report: dict[str, Any] | None = None
+    if game_dir is not None or auto_rebind:
+        conflict_report = analyze_mod_conflicts(ir, game_dir=game_dir)
+        auto_rebound = False
+        rebind_applied: dict[str, Any] | None = None
+        if auto_rebind:
+            rec = conflict_report.get("recommended_rebind")
+            if _has_rebindable_keybind_conflict(conflict_report) and rec is not None:
+                orig_inputs = {
+                    "activation_key": ir.inputs.activation_key,
+                    "modifier_key": ir.inputs.modifier_key,
+                }
+                ir.inputs.activation_key = str(rec["activation_key"])
+                ir.inputs.modifier_key = rec.get("modifier_key")
+                auto_rebound = True
+                rebind_applied = {
+                    "from": orig_inputs,
+                    "to": {
+                        "activation_key": ir.inputs.activation_key,
+                        "modifier_key": ir.inputs.modifier_key,
+                        "canonical_chord": rec.get("canonical_chord"),
+                    },
+                }
+                conflict_report = analyze_mod_conflicts(ir, game_dir=game_dir)
+        conflict_report["auto_rebound"] = auto_rebound
+        conflict_report["rebind_applied"] = rebind_applied
+
     ir_out_path.write_text(ir.to_json(indent=2), encoding="utf-8")
 
     validation = validate_gameplay_ir(ir)
@@ -867,6 +1141,8 @@ def pipeline_cmd(
         "simulation": sim_report,
         "visualization": viz_report,
     }
+    if conflict_report is not None:
+        stages["conflict_check"] = conflict_report
     if compile_report is not None:
         stages["compile"] = compile_report
 
@@ -886,6 +1162,8 @@ def pipeline_cmd(
         "visualization": viz_report,
         "stages": stages,
     }
+    if conflict_report is not None:
+        payload["conflict_check"] = conflict_report
     if compile_report is not None:
         payload["compile"] = compile_report
 
@@ -893,8 +1171,15 @@ def pipeline_cmd(
         f"[Pipeline] ok={overall_ok} | mod_id={ir.meta.id} | edition={edition}",
         f"  1. Extract:       ok=True ({len(ir.evidence)} evidence anchors) -> {ir_out_path}",
         f"  2. Validate-IR:   valid={validation.valid} (errors={len(validation.errors)}, warnings={len(validation.warnings)})",
-        f"  3. Transpile:     ok={transpiled.get('ok')} ({len(transpiled.get('generated_files', []))} files in {output_dir})",
     ]
+    if conflict_report is not None:
+        human.append(
+            f"  2b. Conflict:     verdict={conflict_report.get('deployment_verdict')} "
+            f"(auto_rebound={conflict_report.get('auto_rebound', False)})"
+        )
+    human.append(
+        f"  3. Transpile:     ok={transpiled.get('ok')} ({len(transpiled.get('generated_files', []))} files in {output_dir})"
+    )
     if compile_report is not None:
         human.append(
             f"  3b. Compile-DLL:  ok={compile_report.get('ok')} (live_host_linked={compile_report.get('live_host_linked')}) -> {compile_report.get('output_dir')}"

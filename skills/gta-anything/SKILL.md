@@ -21,8 +21,9 @@ Always follow the 8-Phase SOP defined in [`HARNESS.md`](../../HARNESS.md). Alway
 | Phase | Trigger / Goal | CLI Command |
 | :--- | :--- | :--- |
 | **Phase 0** | Check disk space, Windows commit memory, dual build IDs, running processes, and hotkey conflicts | `gta-anything --json preflight [--game-dir PATH] [--hotkey KEY]` |
+| **Phase 0.5** | **MANDATORY**: Scan host `.ini`/`.cfg`/`.xml` keybinds, installed DLL/ASI ABI, and active/inactive profiles | `gta-anything --json host-scan [--game-dir PATH] [--no-inactive]` |
 | **Phase 1** | Extract evidence-backed `GameplayIR` from `spec.md`, `routes/*.xml`, `.json`, or source directories | `gta-anything --json extract <source_path> -o gameplay_ir.json [--edition enhanced_gen9\|legacy_gen8]` |
-| **Phase 2** | Validate IR safety invariants (vanilla fallback, no live 3D menu spawn, `Teardown` reachability) | `gta-anything --json validate-ir <ir_path>` |
+| **Phase 2** | Validate IR safety invariants & run 5-dimension conflict arbitration with `--auto-rebind` | `gta-anything --json validate-ir <ir_path>`<br>`gta-anything --json conflict-check <ir_path> [--game-dir PATH] [--auto-rebind] [-o OUT_IR]` |
 | **Phase 3** | Map IR to GTA world catalog, generate clean-room C# project, and compile PE `.dll` assemblies | `gta-anything --json transpile <ir_path> -o <out_dir>`<br>`gta-anything --json build-dll <mod_dir> [--game-dir PATH] [-o OUT_DIR] [--edition ...]` |
 | **Phase 4** | Audit `.yft`/`.ytd`/`.dds`/`dlclist.xml` against the 5-Stage Gen8/Gen9 Asset Gates & auto-reencode `script_rt_*` | `gta-anything --json asset-check <path> [--edition enhanced_gen9\|legacy_gen8]`<br>`gta-anything --json asset-fix <path> [-o OUT_DIR] [--edition ...] [--dry-run]` |
 | **Phase 5** | Run offline end-to-end pipeline (optionally with `--compile`) & verify L1–L7 Acceptance Evidence Ladder (`TEST.md`) | `gta-anything --json pipeline <source_path> -o <out_dir> [--edition enhanced_gen9\|legacy_gen8] [--compile] [--game-dir PATH]` |
@@ -126,6 +127,24 @@ gta-anything --json asset-fix /path/to/addon_assets -o /tmp/fixed_assets --editi
 gta-anything --json build-dll /tmp/pizza_build -o /tmp/pizza_build/bin --edition enhanced_gen9 [--game-dir "<GAME_DIR>"]
 ```
 
+### 2.10 `host-scan` & `conflict-check --auto-rebind` (`v0.4.0` — MANDATORY before codegen/deploy)
+```bash
+# Phase 0.5: Scan real host .ini/.xml keybinds (relative paths only), DLL ABI, and Top 5 free chords
+gta-anything --json host-scan --game-dir "<GAME_DIR>"
+
+# Phase 2: Run 5-dimension conflict arbitration (keybinds, assemblies_abi, spatial_turf, dlc_and_models, resource_budget)
+# Automatically rebinds conflicting hotkeys to a guaranteed conflict-free chord when --auto-rebind is passed:
+gta-anything --json conflict-check gameplay_ir.json --game-dir "<GAME_DIR>" --auto-rebind -o gameplay_ir.json
+
+# Or enable --auto-rebind directly inside pipeline:
+gta-anything --json pipeline examples/metro_shuttle_loop/spec.md -o /tmp/metro_build --game-dir "<GAME_DIR>" --auto-rebind
+```
+**Key `conflict-check` JSON fields**:
+- `deployment_verdict`: `"SAFE_TO_MERGE"` | `"REBIND_AND_MERGE"` | `"ISOLATE_NEW_PROFILE"` | `"BLOCKED_ENVIRONMENT"`.
+- `recommended_rebind`: Top conflict-free `{activation_key, modifier_key, canonical_chord, reason}` selected by `recommend_safe_chords`.
+- `dimensions.spatial_turf`: Flags `< 15m` spawn/stop collisions (`SPATIAL_SPAWN_OVERLAP`) against existing route XML/JSON/INI files.
+- `dimensions.assemblies_abi`: Flags dual-version DLL collisions (e.g. `LemonUI.SHVDN2.dll` + `LemonUI.SHVDN3.dll`) and `ActiveMode.txt` loader mismatches.
+
 ---
 
 ## 3. Critical Anti-Patterns & Hard Engineering Rules
@@ -146,6 +165,8 @@ When writing, reviewing, or debugging GTA V mods, **NEVER** violate these rules:
    - *Rule*: Never run global world sweeps that delete arbitrary vehicles or peds. Register every spawned vehicle, ped, blip, camera, and prop into `WorldSession`, and guarantee every operational state can transition to `Teardown` (`WorldSession.DisposeAll()`).
 6. **Zero Proprietary Binaries & Zero Personal Paths**:
    - *Rule*: Never commit `.dll`, `.asi`, `.rpf`, `.yft`, `.ytd`, or personal machine paths into the repository.
+7. **ALWAYS Run `host-scan` & `conflict-check --auto-rebind` Before Generating or Deploying**:
+   - *Rule*: Never guess a hotkey or merge into a dirty game folder blindly. Always run `host-scan` and `conflict-check --auto-rebind` to inspect real `.ini` keybinds, DLL ABI, `< 15m` spatial turf, and the `SAFE_TO_MERGE` / `REBIND_AND_MERGE` / `ISOLATE_NEW_PROFILE` verdict before transpiling or staging a profile.
 
 ---
 

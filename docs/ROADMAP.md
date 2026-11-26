@@ -38,10 +38,11 @@ flowchart LR
 - [x] 实现零外部依赖的洛圣都街头雷达蓝图可视化器 `gta-anything visualize`（`visualizer/radar_html.py`），输出自包含交互式 SVG 路线图与状态机拓扑 HTML
 - [x] 接入本地 `.NET` / `csc.exe` 自动编译生成的 `.csproj` / `.cs` 产物的闭环校验器（`gta-anything build-dll` & `pipeline --compile`，支持离线洁净室 `.dll` 编译与 `--game-dir` 实机 `ScriptHookVDotNet3.dll` 链接及 PE `MZ` 头校验）
 
-### M2：深度源码/二进制提取（REA 联动）与资产转换自动化（已完成 `v0.3.0`）
+### M2：深度源码/二进制提取（REA 联动）、资产转换自动化与多模组冲突治理（已完成 `v0.3.0` + `v0.4.0`）
 - [x] 集成多语言 AST 解析器（`extractor/polyglot_ast.py`，Python `ast.parse` + JS/TS/C#/Lua/GDScript 结构化扫描 + 2D→洛圣都路网坐标自动投影），支持直接从开源/外部小游戏仓库（如 `examples/external_pizza_rush_src/`）自动提取完整状态机、载具/NPC 映射与数值表至 `Gameplay IR`
 - [x] 实现纯标准库 Gen8 → Gen9 纹理（含 `script_rt_*` `DXT1`/`DXT3`/`DXT5` 多 mip 重编码为单 mip `B8G8R8A8_UNORM`）与 `dlclist.xml` 自动修复引擎 `gta-anything asset-fix`（`assets/fixer.py`，支持 `--dry-run` 与 `audit_assets` 闭环通过）
 - [x] 建立可视化 Gameplay IR 状态图与路线拓扑预览器（已提前于 `v0.2.0` 交付 `gta-anything visualize` 离线 HTML 雷达蓝图）
+- [x] **(`v0.4.0`) 宿主实时热键注册表与 5 维模组冲突仲裁器**：交付 `conflict/keybind_scanner.py` 与 `conflict/arbitrator.py`，新增 `gta-anything host-scan` 与 `gta-anything conflict-check --auto-rebind`（以及 `pipeline --auto-rebind`），覆盖真实 `.ini`/`.cfg`/`.xml`/`*Config.json` 热键（含修饰键与 VK 十六进制码归一化）、`ActiveMode` 与 `Inactive/<profile>` 隔离识别、`.dll`/`.asi` 双版本 ABI 检测、`< 15m` 空间刷车点重叠检测及 `SAFE_TO_MERGE` / `REBIND_AND_MERGE` / `ISOLATE_NEW_PROFILE` / `BLOCKED_ENVIRONMENT` 部署裁决
 
 ### M3：跨载体世界模型生态与社区 Hub (`GTA-Anything Hub`)
 - [ ] 支持输出 FiveM / RAGE MP 多人服务端+客户端同步脚本目标后端

@@ -21,8 +21,9 @@
 
 ```mermaid
 flowchart LR
-    P0["Phase 0\nPreflight 预检"] --> P1["Phase 1\nExtractor 机制提取"]
-    P1 --> P2["Phase 2\nWorld-Model 映射校验"]
+    P0["Phase 0\nPreflight 预检"] --> P05["Phase 0.5\nhost-scan 宿主扫描"]
+    P05 --> P1["Phase 1\nExtractor 机制提取"]
+    P1 --> P2["Phase 2\nIR 校验与 5 维冲突仲裁"]
     P2 --> P3["Phase 3\nC# 洁净室转译"]
     P3 --> P4["Phase 4\n5-Gate 资产门禁"]
     P4 --> P5["Phase 5\n7-Layer 验收测试"]
@@ -57,6 +58,20 @@ flowchart LR
 
 ---
 
+## Phase 0.5: Host Keybind Registry & ABI Scan (`gta-anything host-scan`) **[MANDATORY]**
+
+在提取或生成任何新模组之前，只要宿主存在游戏安装目录，Agent **必须**先对宿主环境执行只读全量扫描，掌握当前已占用热键、已安装 `.asi`/`.dll` ABI 版本与 `GTA5-Profiles` 隔离状态：
+
+```bash
+gta-anything --json host-scan --game-dir "<GAME_INSTALL_DIR>"
+```
+
+- **真实 `.ini`/`.cfg`/`.xml`/`*Config.json` 热键注册表**：自动解析根目录（`RagePluginHook.ini`、`ScriptHookVDotNet.ini`、`TrainerV.ini`）、`scripts/`、`plugins/`、`lspdfr/` 及 `GTA5-Profiles/Inactive/<profile>` 中的真实按键绑定与修饰键（如 `Shift+F9`、`0x78` -> `F9`），仅输出相对路径 (`relative_path:line`)，绝不泄露个人绝对路径。
+- **Top 5 零冲突推荐组合键 (`recommended_safe_chords`)**：基于当前宿主实装热键与加载器保留键，确定性给出 5 个保证零冲突的候选组合键。
+- **程序集与 ABI 探测**：识别双版本冲突（如 `LemonUI.SHVDN2.dll` 与 `LemonUI.SHVDN3.dll` 共存）及当前激活模式（如 `ActiveMode.txt` 为 `LSPDFR`）。
+
+---
+
 ## Phase 1: Evidence-Backed Mechanism Extraction (`gta-anything extract`)
 
 借鉴 `REA (Reverse Engineer Anything)`，**严禁仅凭直觉脑补玩法结构**。必须从授权输入（需求文档 `spec.md`、业务配置 `routes/*.xml` 或源码目录）中提取带证据锚点 (`EvidenceAnchor`) 的中间表示 `Gameplay IR (G-IR)`。
@@ -83,10 +98,18 @@ flowchart LR
 在进入代码生成前，必须验证 `Gameplay IR` 是否符合 GTA 世界模型安全不变量，并落实 **「原版基线先行 (Vanilla-First Baseline)」** 铁律。
 
 ### 执行步骤
-1. **执行 IR 静态不变量校验**：
+1. **执行 IR 静态不变量校验与 5 维冲突仲裁 (`validate-ir` + `conflict-check --auto-rebind`)**：
    ```bash
    gta-anything --json validate-ir gameplay_ir.json
+   # 强制对宿主目录执行 5 维冲突仲裁，并在热键冲突时自动重绑至零冲突组合键：
+   gta-anything --json conflict-check gameplay_ir.json --game-dir "<GAME_INSTALL_DIR>" --auto-rebind -o gameplay_ir.json
    ```
+   - **5 维冲突仲裁 (`dimensions`)**：同时核查 `keybinds`（`.ini`/`.xml` 实装热键）、`assemblies_abi`（加载链与 `.dll` ABI 冲突）、`spatial_turf`（`< 15m` 站点/刷新点重叠 `SPATIAL_SPAWN_OVERLAP`）、`dlc_and_models` 与 `resource_budget`。
+   - **部署裁决 (`deployment_verdict`)**：
+     - `SAFE_TO_MERGE`：5 维零阻断冲突，可直接合并部署。
+     - `REBIND_AND_MERGE`：仅存在热键冲突，通过 `--auto-rebind` 自动重绑至 `recommended_rebind` 后即可安全合并。
+     - `ISOLATE_NEW_PROFILE`：存在加载链失配（如宿主当前激活 `LSPDFR` 而新模组为 `shvdn_enhanced`）或 ABI/空间冲突，必须通过 Phase 6 `profile` 隔离部署。
+     - `BLOCKED_ENVIRONMENT`：系统资源枯竭或进程未关闭，阻断部署。
 2. **五大强制不变量核查**：
    - **Invariant 1 — 原版兜底完整性 (`vanilla_fallback_model`)**：每个 `EntitySlot` 必须绑定合法的 GTA V 原版内置模型（如公交使用 `bus` / `airbus` / `coach`，货运使用 `mule` / `benson` / `pounder`，调度员使用 `s_m_m_dockwork_01` / `a_m_y_business_01`）。即使 `preferred_addon_model` 留空或流式加载失败，纯靠原版模型也必须能 100% 跑通全流程！
    - **Invariant 2 — 菜单与 3D 实体生成彻底解耦 (`preview_mode != "live_3d_spawn"`)**：`ui_spec.preview_mode` 仅允许 `"static_metadata"` 或 `"static_sprite"`，从根源上消灭菜单快速滚动时的 `NullReferenceException`。
@@ -223,3 +246,4 @@ gta-anything --json pipeline examples/metro_shuttle_loop/spec.md -o <TMP_OUT_DIR
 - [ ] **菜单零 3D 实时生成**：`ui_spec.preview_mode` 严禁设为 `live_3d_spawn`。
 - [ ] **完整 L1–L7 闭环与 `WorldSession` 租约**：所有运行态必须能回到 `Teardown`，只清理自己租约内的实体。
 - [ ] **Gen9 资产必过 5 道门禁**：`.yft` v171、`.ytd` v5、`script_rt_*` 必须为单 mip `B8G8R8A8_UNORM`。
+- [ ] **部署前必跑 `host-scan` 与 `conflict-check --auto-rebind`**：生成或部署前必须扫描宿主真实 `.ini` 热键、DLL ABI 与 `< 15m` 空间重叠，按 `SAFE_TO_MERGE` / `REBIND_AND_MERGE` / `ISOLATE_NEW_PROFILE` 裁决执行。

@@ -417,12 +417,22 @@ def run_preflight(
     exe_path_str: str | None = None
     exe_version: str | None = None
     shv_build_alias: str | None = None
+    active_profile_mode: str | None = None
     detected_loaders: list[str] = []
 
     if game_provided and not game_exists:
         errors.append(f"Specified game_dir does not exist: {target_dir}")
 
     if game_exists:
+        active_mode_file = target_dir / "GTA5-Profiles" / "ActiveMode.txt"
+        if active_mode_file.exists() and active_mode_file.is_file():
+            try:
+                mode_text = active_mode_file.read_text(encoding="utf-8", errors="replace").strip()
+                if mode_text:
+                    active_profile_mode = mode_text.splitlines()[0].strip()
+            except Exception:
+                pass
+
         enhanced_exe = target_dir / "GTA5_Enhanced.exe"
         legacy_exe = target_dir / "GTA5.exe"
 
@@ -470,16 +480,69 @@ def run_preflight(
             f"Hotkey conflict on '{conflict['key']}' with {conflict['owner']}: "
             f"{conflict['reason']} ({conflict['suggestion']})"
         )
-        if conflict.get("severity") == "HIGH":
-            warnings.append(msg)
-        else:
-            warnings.append(msg)
+        warnings.append(msg)
+
+    installed_keybind_summary: dict[str, Any] | None = None
+    recommended_safe_chords: list[dict[str, Any]] = []
+    try:
+        from gta_anything.conflict.keybind_scanner import (
+            evaluate_keybind_conflicts,
+            recommend_safe_chords,
+            scan_installed_keybinds,
+        )
+
+        scanned_registry: dict[str, Any] | None = None
+        if game_exists:
+            scanned_registry = scan_installed_keybinds(
+                target_dir, include_inactive_profiles=True
+            )
+            installed_keybind_summary = scanned_registry.get("summary")
+            if active_profile_mode is None and scanned_registry.get("active_profile_mode"):
+                active_profile_mode = scanned_registry.get("active_profile_mode")
+
+            if hotkey and hotkey.strip():
+                hk_parts = [p.strip() for p in re.split(r"[+]+", hotkey.strip()) if p.strip()]
+                act_key = hk_parts[-1] if hk_parts else hotkey.strip()
+                mod_key = "+".join(hk_parts[:-1]) if len(hk_parts) > 1 else None
+                dyn_eval = evaluate_keybind_conflicts(
+                    activation_key=act_key,
+                    modifier_key=mod_key,
+                    scanned_registry=scanned_registry,
+                )
+                for finding in dyn_eval.get("conflicts", []):
+                    rel_path = finding.get("relative_path")
+                    if not rel_path:
+                        continue
+                    dyn_entry = {
+                        "key": finding.get("canonical_chord") or hotkey,
+                        "owner": finding.get("owner_mod") or "InstalledMod",
+                        "category": finding.get("context_scope") or "installed_ini",
+                        "severity": finding.get("severity") or "CONTEXT_WARNING",
+                        "reason": finding.get("reason") or f"Collides with {rel_path}:{finding.get('line')}",
+                        "suggestion": finding.get("suggestion") or "Choose a conflict-free chord from recommended_safe_chords.",
+                        "relative_path": rel_path,
+                        "line": finding.get("line"),
+                        "profile": finding.get("profile"),
+                    }
+                    conflicts.append(dyn_entry)
+                    if str(finding.get("severity", "")).upper() in {"BLOCKING", "CONTEXT_WARNING"}:
+                        warnings.append(
+                            f"Dynamic keybind collision on '{dyn_entry['key']}' with "
+                            f"{dyn_entry['owner']} ({rel_path}:{dyn_entry['line']}): {dyn_entry['reason']}"
+                        )
+
+        recommended_safe_chords = recommend_safe_chords(
+            scanned_registry=scanned_registry, count=5
+        )
+    except Exception:
+        pass
 
     ok = len(errors) == 0 and disk_ok and commit_ok
 
     return {
         "ok": ok,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "active_profile_mode": active_profile_mode,
         "system": {
             "os": f"{platform.system()} {platform.release()}".strip(),
             "disk_drive": disk_drive,
@@ -496,6 +559,7 @@ def run_preflight(
             "exe_path": exe_path_str,
             "exe_version": exe_version,
             "shv_build_alias": shv_build_alias,
+            "active_profile_mode": active_profile_mode,
             "detected_loaders": detected_loaders,
             "running_processes": running_processes,
             "processes_clear": processes_clear,
@@ -503,6 +567,8 @@ def run_preflight(
         "hotkey_check": {
             "requested_hotkey": hotkey,
             "conflicts": conflicts,
+            "recommended_safe_chords": recommended_safe_chords,
+            "installed_keybind_summary": installed_keybind_summary,
         },
         "warnings": warnings,
         "errors": errors,

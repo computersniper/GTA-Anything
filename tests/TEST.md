@@ -175,3 +175,41 @@ tests\test_transpiler_and_deploy.py ....                                 [100%]
 ```
 
 - **Clean-Room Hygiene**: `test_repository_clean_room_hygiene` PASSED (`0` binary violations, `0` personal machine paths)
+
+
+---
+
+## Part 5: `v0.4.0` Live Keybind Registry & 5-Dimension Conflict Arbitrator Verification Report
+
+### 5.1 `v0.4.0` Scope & New Test Suite (`tests/test_v04_conflict_and_keybinds.py`)
+
+- **Package Version**: `gta-anything 0.4.0`
+- **New `v0.4.0` Test Coverage (4 tests)**:
+  - `test_scan_installed_keybinds_parses_ini_vk_hex_profiles_and_relative_paths`: Verifies `normalize_key_name` / `normalize_chord` (WinForms aliases, `0x78` -> `F9`, `0x2D` -> `Insert`, `LShiftKey` -> `Shift`), `.ini` companion `*Modifier*` resolution (`Shift+F9`), `ActiveMode.txt` (`LSPDFR`) + `inactive:Bus` profile separation, and portable relative paths only.
+  - `test_evaluate_keybind_conflicts_and_recommend_safe_chords`: Verifies `Shift+F9` collision against `PolicingRedefined.ini` (`BLOCKING`), `B` classification as `on_duty_police`, and `recommend_safe_chords` returning 5 zero-blocking-conflict chords.
+  - `test_analyze_mod_conflicts_isolate_vs_safe_to_merge`: Verifies `< 15m` spatial overlap detection (`SPATIAL_SPAWN_OVERLAP`), dual-DLL `LemonUI.SHVDN2.dll` + `LemonUI.SHVDN3.dll` ABI detection (`DUPLICATE_UI_LIBRARY_ABI`), active `LSPDFR` vs `shvdn_enhanced` loader mismatch (`LOADER_CHAIN_MISMATCH` -> `deployment_verdict == "ISOLATE_NEW_PROFILE"`), and `"SAFE_TO_MERGE"` on a clean SHVDN directory with non-overlapping coordinates and free hotkey.
+  - `test_cli_json_host_scan_conflict_check_auto_rebind_and_pipeline`: Verifies `gta-anything --json host-scan`, `gta-anything --json conflict-check --auto-rebind -o ...` (confirming automatic rebind to a conflict-free chord and `blocking_count == 0`), and `gta-anything --json pipeline --auto-rebind`.
+
+### 5.2 Full `v0.4.0` `pytest -v` Output
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: ./GTA-Anything
+configfile: pyproject.toml
+testpaths: tests
+plugins: langsmith-0.8.5, anyio-4.10.0
+collected 43 items
+
+tests\test_diagnose_and_cli_e2e.py ...                                   [  6%]
+tests\test_ir_and_mapper.py .............                                [ 37%]
+tests\test_m1_sim_viz_and_rph.py .........                               [ 58%]
+tests\test_m2_polyglot_fixer_and_compiler.py .....                       [ 69%]
+tests\test_preflight_and_assets.py .....                                 [ 81%]
+tests\test_transpiler_and_deploy.py ....                                 [ 90%]
+tests\test_v04_conflict_and_keybinds.py ....                             [100%]
+
+============================= 43 passed in 29.29s =============================
+```
+
+- **Clean-Room Hygiene**: `test_repository_clean_room_hygiene` PASSED (`0` binary violations, `0` personal machine paths)

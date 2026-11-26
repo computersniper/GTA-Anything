@@ -17,7 +17,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-2E8B57?style=for-the-badge&logo=python&logoColor=white&labelColor=111111)](pyproject.toml)
 [![C# Runtime](https://img.shields.io/badge/C%23%20Runtime-netstandard2.0-FF8C00?style=for-the-badge&logo=dotnet&logoColor=white&labelColor=111111)](runtime/csharp/GtaAnything.Runtime)
 [![Target](https://img.shields.io/badge/Turf-GTA%20V%20Gen9%20%26%20Gen8-C41E3A?style=for-the-badge&labelColor=111111)](docs/ARCHITECTURE.md)  
-[![Tests](https://img.shields.io/badge/Mission%20Passed-39%2F39%20Tests-2E8B57?style=for-the-badge&labelColor=111111)](tests/TEST.md)
+[![Tests](https://img.shields.io/badge/Mission%20Passed-43%2F43%20Tests-2E8B57?style=for-the-badge&labelColor=111111)](tests/TEST.md)
 [![Wanted](https://img.shields.io/badge/Asset%20Gate-%E2%98%85%E2%98%85%E2%98%85%E2%98%85%E2%98%85-D4AF37?style=for-the-badge&labelColor=111111)](#wanted-gate)
 [![Agent-Native](https://img.shields.io/badge/Agent--Native-HARNESS%20%2B%20SKILL%20%2B%20--json-FF8C00?style=for-the-badge&labelColor=111111)](HARNESS.md)
 [![Clean-Room](https://img.shields.io/badge/Respect%20%2B-100%25%20Clean--Room-C41E3A?style=for-the-badge&labelColor=111111)](#code-of-the-streets)
@@ -186,8 +186,9 @@ flowchart LR
 | 工位 | CLI 子命令 | 🔩 改装工序 · 核心职责与形式化守卫 | 📦 出厂单据 (产物 / 证据) |
 | :--- | :--- | :--- | :--- |
 | **Phase 0** · 进厂体检 | `preflight` | 校验磁盘余量、Windows 可提交内存 (`CommitLimit - CommitTotal`)、游戏未运行、双构建号（磁盘 `1.0.1158.16` vs SHV `VER_EN_1_0_1158_13`）及热键冲突 | `PreflightReport` JSON |
+| **Phase 0.5** · 宿主摸底 | `host-scan` | **(`v0.4.0` 必选)** 只读扫描宿主真实 `.ini`/`.cfg`/`.xml`/`*Config.json` 热键、`.asi`/`.dll` ABI 与 `GTA5-Profiles` 状态，输出 Top 5 零冲突组合键 | `HostScanReport` JSON |
 | **Phase 1** · 拆车取件 | `extract` | 从 `spec.md`、`routes/*.xml` 或授权源码提取状态机、实体槽位与空间轨迹，绑定行级 `EvidenceAnchor` | `gameplay_ir.json` |
-| **Phase 2** · 车架校正 | `validate-ir` | 图论 BFS 验证所有状态可达且所有活跃态均存在有向路径到达 `Teardown`；静态拦截 `live_3d_spawn` 与空 `vanilla_fallback_model` | `ValidationReport` JSON |
+| **Phase 2** · 车架校正 | `validate-ir`<br>`conflict-check` | 图论 BFS 验证所有状态可达且存在路径到达 `Teardown`；执行 5 维冲突仲裁（热键 / ABI / `< 15m` 空间重叠 / DLC / 资源）并支持 `--auto-rebind` 自动重绑 | `ValidationReport` & `ConflictReport` JSON |
 | **Phase 3** · 引擎换装 | `transpile` | 将 G-IR 映射至 GTA 世界模型契约，生成支持 `GTAV_ENHANCED` / `GTAV_LEGACY` 条件编译的 C# 模组工程 | `.csproj` + `ModEntrypoint.cs` + `BUILD_AND_VERIFY.md` |
 | **Phase 4** · 五星验车 | `asset-check` | 离线执行 5 道资产兼容门禁，识别 Gen8/Gen9 版本错配与 `script_rt_dials_*` `DXT1` 崩溃隐患 | `AssetAuditReport` JSON |
 | **Phase 5** · 上路试驾 | *(Runtime)* | `PhasedJsonLogger` 在模组运行期按 `L1`–`L7` 阶梯自动落盘结构化 `.jsonl` 遥测证据 | `<mod_id>_telemetry.jsonl` |
@@ -225,11 +226,15 @@ gta-anything --json pipeline examples/external_pizza_rush_src \
 # Phase 0: 环境、可提交内存、双构建号与热键冲突预检
 gta-anything --json preflight --hotkey F9
 
+# Phase 0.5 (v0.4.0): 宿主真实 .ini/.xml 热键、DLL ABI 与 Top 5 零冲突组合键只读扫描
+gta-anything --json host-scan --game-dir "<GAME_DIR>"
+
 # Phase 1: 从 Markdown 玩法规范 + XML 线路表提取带证据锚点的 Gameplay IR
 gta-anything --json extract examples/metro_shuttle_loop/spec.md -o build/metro_ir.json
 
-# Phase 2: 静态校验 Gameplay IR 安全不变量（BFS Teardown 可达性 / 禁 3D 预览 / 原版兜底）
+# Phase 2: 静态校验 Gameplay IR 安全不变量 & 5 维冲突仲裁 + 自动重绑热键 (--auto-rebind)
 gta-anything --json validate-ir examples/metro_shuttle_loop/gameplay_ir.json
+gta-anything --json conflict-check build/metro_ir.json --game-dir "<GAME_DIR>" --auto-rebind -o build/metro_ir.json
 
 # Phase 3: 转译为洁净室 C# 模组工程（支持 SHVDN 与 RPH 双链 + 2D 静态 SVG 预览卡）
 gta-anything --json transpile examples/vinewood_patrol_rph/gameplay_ir.json -o build/VinewoodPatrolRph
@@ -269,7 +274,7 @@ dotnet build runtime/csharp/GtaAnything.Runtime/GtaAnything.Runtime.csproj -c Re
 dotnet build build/MetroShuttleLoop/MetroShuttleLoop.csproj -c Release -p:Edition=EnhancedGen9
 ```
 
-### 5. 任务结算 · 运行离线自动化测试 (`39/39 MISSION PASSED`)
+### 5. 任务结算 · 运行离线自动化测试 (`43/43 MISSION PASSED`)
 
 ```bash
 pytest -v
