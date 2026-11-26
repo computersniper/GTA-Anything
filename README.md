@@ -42,8 +42,6 @@
 
 ## 🗺️ THE TURF · 为什么把洛圣都当作通用「世界模型街头基底」？
 
-<p align="center"><img src="docs/assets/world-builder-poster.jpg" alt="GTA-Anything — Build Your World Poster" width="88%" /></p>
-
 > 📟 *Lamar's pager:* "Yo homie, why you hand-rolling a whole city? The block's already poppin'."
 
 为什么要从零手写刚体车辆物理、交通流 AI、道路寻路网格 (NavMesh)、昼夜天气光照与第三人称镜头系统？  
@@ -304,6 +302,8 @@ cp -r skills/gta-anything ~/.claude/skills/
 <a id="contracts"></a>
 
 ## 🌴 STREET CONTRACTS · 内置洁净室街头委托 (Clean-Room Examples)
+
+<p align="center"><img src="docs/assets/world-builder-poster.jpg" alt="GTA-Anything — Build Your World Poster" width="82%" /></p>
 
 所有委托均 **100% 原创**，默认绑定 GTA V 原版内置实体名称（零外部商业资产依赖即可跑通完整闭环）：
 
