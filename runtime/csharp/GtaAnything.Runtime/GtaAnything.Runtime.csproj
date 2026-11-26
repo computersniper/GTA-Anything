@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>GtaAnything.Runtime</RootNamespace>
     <AssemblyName>GtaAnything.Runtime</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.3.0</Version>
     <Authors>GTA-Anything Clean-Room Contributors</Authors>
     <Description>Clean-Room C# Runtime Compatibility, Lifecycle, Safe Model Streaming, Decoupled UI, and 7-Layer Telemetry SDK for GTA-Anything (Gen8 Legacy &amp; Gen9 Enhanced).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

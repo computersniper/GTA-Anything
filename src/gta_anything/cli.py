@@ -70,6 +70,8 @@ def cli(ctx: click.Context, json_output: bool) -> None:
                             "validate-ir",
                             "transpile",
                             "asset-check",
+                            "asset-fix",
+                            "build-dll",
                             "simulate",
                             "visualize",
                             "catalog",
@@ -294,6 +296,120 @@ def asset_check_cmd(
         human.append(
             f"  [{finding.get('severity', 'INFO')}] {finding.get('code', '')}: {finding.get('message', '')}"
         )
+    _emit(ctx, report, human, local_json)
+
+
+@cli.command("asset-fix")
+@click.argument("target_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional output directory for repaired assets (defaults to in-place with .bak backups).",
+)
+@click.option(
+    "--edition",
+    type=click.Choice(["enhanced_gen9", "legacy_gen8"]),
+    default="enhanced_gen9",
+    show_default=True,
+    help="Target GTA V edition for asset repair.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Inspect and plan repairs without modifying or writing files.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def asset_fix_cmd(
+    ctx: click.Context,
+    target_path: Path,
+    output_dir: Path | None,
+    edition: str,
+    dry_run: bool,
+    local_json: bool,
+) -> None:
+    """Phase 4B: Auto-reencode legacy DXT/multi-mip script_rt_* DDS textures to single-mip B8G8R8A8_UNORM and repair dlclist.xml."""
+    from gta_anything.assets.fixer import fix_assets
+
+    report = fix_assets(
+        target_path,
+        output_dir=output_dir,
+        target_edition=edition,
+        dry_run=dry_run,
+    )
+    human = [
+        f"[Asset-Fix] ok={report.get('ok')} | edition={report.get('target_edition')} | "
+        f"dry_run={report.get('dry_run')} | scanned={report.get('scanned_files')} | "
+        f"repaired={report.get('repaired_count')}"
+    ]
+    for rep in report.get("repairs", []):
+        human.append(
+            f"  [FIXED] {rep.get('source')} -> {rep.get('output')} ({rep.get('action', rep.get('issue', ''))})"
+        )
+    for err in report.get("errors", []):
+        human.append(f"  [ERROR] {err}")
+    _emit(ctx, report, human, local_json)
+
+
+@cli.command("build-dll")
+@click.argument("mod_dir", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--game-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional GTA V installation directory to link against real ScriptHookVDotNet3.dll / RAGEPluginHook.dll.",
+)
+@click.option(
+    "-o",
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output directory for compiled .dll assemblies (defaults to <mod_dir>/bin).",
+)
+@click.option(
+    "--edition",
+    type=click.Choice(["enhanced_gen9", "legacy_gen8"]),
+    default="enhanced_gen9",
+    show_default=True,
+    help="Target GTA V edition conditional compilation preset.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def build_dll_cmd(
+    ctx: click.Context,
+    mod_dir: Path,
+    game_dir: Path | None,
+    output_dir: Path | None,
+    edition: str,
+    local_json: bool,
+) -> None:
+    """Phase 3B: Compile a transpiled C# mod project into real PE .dll assemblies (standalone or live SHVDN3/RPH)."""
+    from gta_anything.compiler.dotnet_builder import compile_csharp_mod
+
+    report = compile_csharp_mod(
+        mod_dir=mod_dir,
+        game_dir=game_dir,
+        output_dir=output_dir,
+        edition=edition,
+    )
+    comp = report.get("compiler", {})
+    human = [
+        f"[Build-DLL] ok={report.get('ok')} | mod={report.get('mod_class_name')} | "
+        f"edition={report.get('edition')} | compiler={comp.get('kind')} | "
+        f"live_host_linked={report.get('live_host_linked')}",
+        f"  Output Dir: {report.get('output_dir')}",
+    ]
+    for art in report.get("artifacts", []):
+        human.append(
+            f"  + {art.get('name')} ({art.get('size_bytes')} bytes, PE_MZ={art.get('pe_header_valid')})"
+        )
+    for w in report.get("warnings", []):
+        human.append(f"  WARN: {w}")
+    for err in report.get("errors", []):
+        human.append(f"  ERROR: {err}")
     _emit(ctx, report, human, local_json)
 
 
@@ -644,6 +760,19 @@ def catalog_cmd(
     show_default=True,
     help="Target GTA V edition.",
 )
+@click.option(
+    "--compile",
+    "do_compile",
+    is_flag=True,
+    default=False,
+    help="Also compile the transpiled C# mod into PE .dll assemblies under <output-dir>/bin.",
+)
+@click.option(
+    "--game-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional GTA V installation directory when using --compile to link real ScriptHookVDotNet3.dll / RAGEPluginHook.dll.",
+)
 @click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
 @click.pass_context
 def pipeline_cmd(
@@ -651,10 +780,13 @@ def pipeline_cmd(
     source_path: Path,
     output_dir: Path,
     edition: str,
+    do_compile: bool,
+    game_dir: Path | None,
     local_json: bool,
 ) -> None:
-    """Run end-to-end offline pipeline: Extract -> Validate-IR -> Transpile -> Asset-Check -> Simulate -> Visualize."""
+    """Run end-to-end pipeline: Extract -> Validate-IR -> Transpile [-> Compile] -> Asset-Check -> Simulate -> Visualize."""
     from gta_anything.assets.auditor import audit_assets
+    from gta_anything.compiler.dotnet_builder import compile_csharp_mod
     from gta_anything.simulator.world_sim import simulate_gameplay_ir
     from gta_anything.visualizer.radar_html import render_ir_dashboard
 
@@ -675,6 +807,23 @@ def pipeline_cmd(
             "world_mapping": {},
         }
     )
+
+    compile_report: dict[str, Any] | None = None
+    if do_compile:
+        if validation.valid and transpiled.get("ok"):
+            compile_report = compile_csharp_mod(
+                mod_dir=output_dir,
+                game_dir=game_dir,
+                output_dir=output_dir / "bin",
+                edition=edition,
+            )
+        else:
+            compile_report = {
+                "ok": False,
+                "skipped": True,
+                "reason": "transpile_failed_or_invalid_ir",
+                "artifacts": [],
+            }
 
     asset_target = source_path if source_path.is_dir() else source_path.parent
     asset_report = audit_assets(asset_target, target_edition=edition)
@@ -698,6 +847,7 @@ def pipeline_cmd(
     overall_ok = (
         validation.valid
         and bool(transpiled.get("ok", False))
+        and (True if compile_report is None else bool(compile_report.get("ok", False)))
         and bool(asset_report.get("ok", True))
         and bool(sim_report.get("ok", False))
         and bool(viz_report.get("ok", False))
@@ -709,7 +859,18 @@ def pipeline_cmd(
         "ir_path": str(ir_out_path),
     }
     validation_dict = validation.to_dict()
-    payload = {
+    stages: dict[str, Any] = {
+        "extract": extract_stage,
+        "validate_ir": validation_dict,
+        "transpile": transpiled,
+        "asset_check": asset_report,
+        "simulation": sim_report,
+        "visualization": viz_report,
+    }
+    if compile_report is not None:
+        stages["compile"] = compile_report
+
+    payload: dict[str, Any] = {
         "ok": overall_ok,
         "mod_id": ir.meta.id,
         "edition": edition,
@@ -723,22 +884,26 @@ def pipeline_cmd(
         "asset_check": asset_report,
         "simulation": sim_report,
         "visualization": viz_report,
-        "stages": {
-            "extract": extract_stage,
-            "validate_ir": validation_dict,
-            "transpile": transpiled,
-            "asset_check": asset_report,
-            "simulation": sim_report,
-            "visualization": viz_report,
-        },
+        "stages": stages,
     }
+    if compile_report is not None:
+        payload["compile"] = compile_report
+
     human = [
         f"[Pipeline] ok={overall_ok} | mod_id={ir.meta.id} | edition={edition}",
         f"  1. Extract:       ok=True ({len(ir.evidence)} evidence anchors) -> {ir_out_path}",
         f"  2. Validate-IR:   valid={validation.valid} (errors={len(validation.errors)}, warnings={len(validation.warnings)})",
         f"  3. Transpile:     ok={transpiled.get('ok')} ({len(transpiled.get('generated_files', []))} files in {output_dir})",
-        f"  4. Asset-Check:   ok={asset_report.get('ok')} (scanned={asset_report.get('scanned_files')} files)",
-        f"  5. Simulation:    ok={sim_report.get('ok')} (L1..L{sim_report.get('highest_acceptance_layer_reached', 0)}, leases={sim_report.get('active_leases_after_teardown', 'n/a')}) -> {telemetry_path}",
-        f"  6. Visualization: ok={viz_report.get('ok')} -> {radar_html_path}",
     ]
+    if compile_report is not None:
+        human.append(
+            f"  3b. Compile-DLL:  ok={compile_report.get('ok')} (live_host_linked={compile_report.get('live_host_linked')}) -> {compile_report.get('output_dir')}"
+        )
+    human.extend(
+        [
+            f"  4. Asset-Check:   ok={asset_report.get('ok')} (scanned={asset_report.get('scanned_files')} files)",
+            f"  5. Simulation:    ok={sim_report.get('ok')} (L1..L{sim_report.get('highest_acceptance_layer_reached', 0)}, leases={sim_report.get('active_leases_after_teardown', 'n/a')}) -> {telemetry_path}",
+            f"  6. Visualization: ok={viz_report.get('ok')} -> {radar_html_path}",
+        ]
+    )
     _emit(ctx, payload, human, local_json)

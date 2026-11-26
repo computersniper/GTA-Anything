@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace GtaAnything.Runtime.Compatibility
 {
@@ -49,6 +50,11 @@ namespace GtaAnything.Runtime.Compatibility
         IPedHandle SpawnPed(string modelName, float x, float y, float z, float heading = 0f);
         IBlipHandle CreateBlip(float x, float y, float z, int sprite = 1, int color = 3, string label = "");
         void ShowNotification(string message);
+        void ShowSubtitle(string message, int durationMs = 2500);
+        bool SeatPlayerInVehicle(IVehicleHandle vehicle, int seatIndex = -1);
+        float GetPlayerDistanceTo(float x, float y, float z);
+        float GetPlayerSpeed();
+        void DrawCheckpointMarker(float x, float y, float z, float radius = 4.0f);
     }
 
     /// <summary>
@@ -62,10 +68,18 @@ namespace GtaAnything.Runtime.Compatibility
         private readonly HashSet<string> _releasedModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _blockedModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _notifications = new List<string>();
+        private readonly List<string> _subtitles = new List<string>();
+        private bool _isStoryModeOrOnDuty = true;
 
-        public bool IsStoryModeOrOnDuty { get; set; } = true;
-        public IReadOnlyCollection<string> ReleasedModels => _releasedModels;
-        public IReadOnlyList<string> Notifications => _notifications;
+        public bool IsStoryModeOrOnDuty
+        {
+            get { return _isStoryModeOrOnDuty; }
+            set { _isStoryModeOrOnDuty = value; }
+        }
+
+        public IReadOnlyCollection<string> ReleasedModels { get { return _releasedModels; } }
+        public IReadOnlyList<string> Notifications { get { return _notifications; } }
+        public IReadOnlyList<string> Subtitles { get { return _subtitles; } }
 
         /// <summary>
         /// Simulates an addon model that times out during streaming (to test Gate 3 fallback).
@@ -84,11 +98,12 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            if (_blockedModels.Contains(modelName.Trim()))
+            string trimmed = modelName.Trim();
+            if (_blockedModels.Contains(trimmed))
             {
                 return false;
             }
-            _loadedModels.Add(modelName.Trim());
+            _loadedModels.Add(trimmed);
             return true;
         }
 
@@ -98,7 +113,8 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            return !_blockedModels.Contains(modelName.Trim()) && _loadedModels.Contains(modelName.Trim());
+            string trimmed = modelName.Trim();
+            return !_blockedModels.Contains(trimmed) && _loadedModels.Contains(trimmed);
         }
 
         public void ReleaseModelRequest(string modelName)
@@ -142,21 +158,51 @@ namespace GtaAnything.Runtime.Compatibility
             }
         }
 
+        public void ShowSubtitle(string message, int durationMs = 2500)
+        {
+            if (message != null)
+            {
+                _subtitles.Add(message);
+            }
+        }
+
+        public bool SeatPlayerInVehicle(IVehicleHandle vehicle, int seatIndex = -1)
+        {
+            return vehicle != null && vehicle.Exists();
+        }
+
+        public float GetPlayerDistanceTo(float x, float y, float z)
+        {
+            return 0f;
+        }
+
+        public float GetPlayerSpeed()
+        {
+            return 0f;
+        }
+
+        public void DrawCheckpointMarker(float x, float y, float z, float radius = 4.0f)
+        {
+        }
+
         private abstract class SimulatedEntityBase : IWorldEntityHandle
         {
             private bool _exists = true;
-            public int HandleId { get; }
-            public string ModelName { get; }
+            private readonly int _handleId;
+            private readonly string _modelName;
+
+            public int HandleId { get { return _handleId; } }
+            public string ModelName { get { return _modelName; } }
 
             protected SimulatedEntityBase(int handleId, string modelName)
             {
-                HandleId = handleId;
-                ModelName = modelName ?? "entity";
+                _handleId = handleId;
+                _modelName = modelName ?? "entity";
             }
 
-            public bool Exists() => _exists;
-            public void Delete() => _exists = false;
-            public void MarkAsNoLongerNeeded() => _exists = false;
+            public bool Exists() { return _exists; }
+            public void Delete() { _exists = false; }
+            public void MarkAsNoLongerNeeded() { _exists = false; }
         }
 
         private sealed class SimulatedVehicleHandle : SimulatedEntityBase, IVehicleHandle
@@ -164,7 +210,7 @@ namespace GtaAnything.Runtime.Compatibility
             public SimulatedVehicleHandle(int handleId, string modelName) : base(handleId, modelName) { }
             public void Repair() { }
             public void SetDoorsShut(bool instant = false) { }
-            public bool IsSeatFree(int seatIndex) => Exists();
+            public bool IsSeatFree(int seatIndex) { return Exists(); }
         }
 
         private sealed class SimulatedPedHandle : SimulatedEntityBase, IPedHandle
@@ -193,23 +239,26 @@ namespace GtaAnything.Runtime.Compatibility
             "F4", "Insert", "F3", "F8", "B", "N", "E", "Y"
         };
 
-        public string ActivationKey { get; }
-        public string ModifierKey { get; }
-        public bool RequiresModifier => !string.IsNullOrWhiteSpace(ModifierKey);
+        private readonly string _activationKey;
+        private readonly string _modifierKey;
+
+        public string ActivationKey { get { return _activationKey; } }
+        public string ModifierKey { get { return _modifierKey; } }
+        public bool RequiresModifier { get { return !string.IsNullOrWhiteSpace(_modifierKey); } }
 
         public HotkeyChord(string activationKey, string modifierKey = null)
         {
             if (string.IsNullOrWhiteSpace(activationKey))
             {
-                throw new ArgumentException("ActivationKey must not be empty.", nameof(activationKey));
+                throw new ArgumentException("ActivationKey must not be empty.", "activationKey");
             }
-            ActivationKey = activationKey.Trim();
-            ModifierKey = string.IsNullOrWhiteSpace(modifierKey) ? null : modifierKey.Trim();
+            _activationKey = activationKey.Trim();
+            _modifierKey = string.IsNullOrWhiteSpace(modifierKey) ? null : modifierKey.Trim();
         }
 
         public bool IsHighConflictWithoutModifier()
         {
-            return !RequiresModifier && HighConflictSingleKeys.Contains(ActivationKey);
+            return !RequiresModifier && HighConflictSingleKeys.Contains(_activationKey);
         }
 
         public bool Matches(string keyPressed, bool modifierDown)
@@ -218,7 +267,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            if (!string.Equals(ActivationKey, keyPressed.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(_activationKey, keyPressed.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -231,7 +280,9 @@ namespace GtaAnything.Runtime.Compatibility
 
         public override string ToString()
         {
-            return RequiresModifier ? $"{ModifierKey}+{ActivationKey}" : ActivationKey;
+            return RequiresModifier
+                ? string.Format(CultureInfo.InvariantCulture, "{0}+{1}", _modifierKey, _activationKey)
+                : _activationKey;
         }
     }
 
@@ -241,10 +292,20 @@ namespace GtaAnything.Runtime.Compatibility
     /// </summary>
     public class LoaderAdapter
     {
-        public IGtaWorldHost Host { get; }
-        public HotkeyChord ActivationChord { get; }
-        public LoaderKind ActiveLoader { get; }
-        public bool RequireStoryModeOrOnDuty { get; set; } = true;
+        private readonly IGtaWorldHost _host;
+        private readonly HotkeyChord _activationChord;
+        private readonly LoaderKind _activeLoader;
+        private bool _requireStoryModeOrOnDuty = true;
+
+        public IGtaWorldHost Host { get { return _host; } }
+        public HotkeyChord ActivationChord { get { return _activationChord; } }
+        public LoaderKind ActiveLoader { get { return _activeLoader; } }
+
+        public bool RequireStoryModeOrOnDuty
+        {
+            get { return _requireStoryModeOrOnDuty; }
+            set { _requireStoryModeOrOnDuty = value; }
+        }
 
         public event Action OnTick;
         public event Action OnAbort;
@@ -255,32 +316,52 @@ namespace GtaAnything.Runtime.Compatibility
             HotkeyChord chord,
             LoaderKind loaderKind = LoaderKind.ShvdnEnhanced)
         {
-            Host = host ?? throw new ArgumentNullException(nameof(host));
-            ActivationChord = chord ?? throw new ArgumentNullException(nameof(chord));
-            ActiveLoader = loaderKind;
+            if (host == null)
+            {
+                throw new ArgumentNullException("host");
+            }
+            if (chord == null)
+            {
+                throw new ArgumentNullException("chord");
+            }
+            _host = host;
+            _activationChord = chord;
+            _activeLoader = loaderKind;
         }
 
         public void ProcessTick()
         {
-            OnTick?.Invoke();
+            Action handler = OnTick;
+            if (handler != null)
+            {
+                handler();
+            }
         }
 
         public void ProcessKeyDown(string keyName, bool modifierDown = false)
         {
-            if (RequireStoryModeOrOnDuty && !Host.IsStoryModeOrOnDuty)
+            if (RequireStoryModeOrOnDuty && !_host.IsStoryModeOrOnDuty)
             {
                 return;
             }
 
-            if (ActivationChord.Matches(keyName, modifierDown))
+            if (_activationChord.Matches(keyName, modifierDown))
             {
-                OnActivationChordPressed?.Invoke(ActivationChord);
+                Action<HotkeyChord> handler = OnActivationChordPressed;
+                if (handler != null)
+                {
+                    handler(_activationChord);
+                }
             }
         }
 
         public void ProcessAbort()
         {
-            OnAbort?.Invoke();
+            Action handler = OnAbort;
+            if (handler != null)
+            {
+                handler();
+            }
         }
     }
 }

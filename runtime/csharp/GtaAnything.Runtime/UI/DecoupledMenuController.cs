@@ -19,13 +19,21 @@ namespace GtaAnything.Runtime.UI
     /// </summary>
     public sealed class StaticMenuCard
     {
-        public string ItemId { get; }
-        public string Title { get; }
-        public string Subtitle { get; }
-        public string SpriteDict { get; }
-        public string SpriteName { get; }
-        public string VanillaFallbackModel { get; }
-        public string PreferredAddonModel { get; }
+        private readonly string _itemId;
+        private readonly string _title;
+        private readonly string _subtitle;
+        private readonly string _spriteDict;
+        private readonly string _spriteName;
+        private readonly string _vanillaFallbackModel;
+        private readonly string _preferredAddonModel;
+
+        public string ItemId { get { return _itemId; } }
+        public string Title { get { return _title; } }
+        public string Subtitle { get { return _subtitle; } }
+        public string SpriteDict { get { return _spriteDict; } }
+        public string SpriteName { get { return _spriteName; } }
+        public string VanillaFallbackModel { get { return _vanillaFallbackModel; } }
+        public string PreferredAddonModel { get { return _preferredAddonModel; } }
 
         public StaticMenuCard(
             string itemId,
@@ -38,20 +46,20 @@ namespace GtaAnything.Runtime.UI
         {
             if (string.IsNullOrWhiteSpace(itemId))
             {
-                throw new ArgumentException("ItemId cannot be empty.", nameof(itemId));
+                throw new ArgumentException("ItemId cannot be empty.", "itemId");
             }
             if (string.IsNullOrWhiteSpace(vanillaFallbackModel))
             {
-                throw new ArgumentException("VanillaFallbackModel cannot be empty.", nameof(vanillaFallbackModel));
+                throw new ArgumentException("VanillaFallbackModel cannot be empty.", "vanillaFallbackModel");
             }
 
-            ItemId = itemId.Trim();
-            Title = title ?? ItemId;
-            Subtitle = subtitle ?? string.Empty;
-            VanillaFallbackModel = vanillaFallbackModel.Trim();
-            PreferredAddonModel = string.IsNullOrWhiteSpace(preferredAddonModel) ? null : preferredAddonModel.Trim();
-            SpriteDict = string.IsNullOrWhiteSpace(spriteDict) ? "commonmenu" : spriteDict.Trim();
-            SpriteName = string.IsNullOrWhiteSpace(spriteName) ? "gradient_bgd" : spriteName.Trim();
+            _itemId = itemId.Trim();
+            _title = title ?? _itemId;
+            _subtitle = subtitle ?? string.Empty;
+            _vanillaFallbackModel = vanillaFallbackModel.Trim();
+            _preferredAddonModel = string.IsNullOrWhiteSpace(preferredAddonModel) ? null : preferredAddonModel.Trim();
+            _spriteDict = string.IsNullOrWhiteSpace(spriteDict) ? "commonmenu" : spriteDict.Trim();
+            _spriteName = string.IsNullOrWhiteSpace(spriteName) ? "gradient_bgd" : spriteName.Trim();
         }
     }
 
@@ -65,19 +73,27 @@ namespace GtaAnything.Runtime.UI
     public sealed class DecoupledMenuController
     {
         private readonly List<StaticMenuCard> _cards = new List<StaticMenuCard>();
+        private readonly string _title;
+        private readonly string _subtitle;
+        private readonly MenuPreviewMode _previewMode;
 
-        public string Title { get; }
-        public string Subtitle { get; }
-        public MenuPreviewMode PreviewMode { get; }
+        public string Title { get { return _title; } }
+        public string Subtitle { get { return _subtitle; } }
+        public MenuPreviewMode PreviewMode { get { return _previewMode; } }
         public bool IsOpen { get; private set; }
         public int SelectedIndex { get; private set; }
 
-        public IReadOnlyList<StaticMenuCard> Cards => _cards;
+        public IReadOnlyList<StaticMenuCard> Cards { get { return _cards; } }
 
-        public StaticMenuCard CurrentCard =>
-            _cards.Count > 0 && SelectedIndex >= 0 && SelectedIndex < _cards.Count
-                ? _cards[SelectedIndex]
-                : null;
+        public StaticMenuCard CurrentCard
+        {
+            get
+            {
+                return _cards.Count > 0 && SelectedIndex >= 0 && SelectedIndex < _cards.Count
+                    ? _cards[SelectedIndex]
+                    : null;
+            }
+        }
 
         public event Action<StaticMenuCard> OnCardHighlighted;
         public event Action<StaticMenuCard> OnCardConfirmed;
@@ -87,9 +103,9 @@ namespace GtaAnything.Runtime.UI
             string subtitle,
             MenuPreviewMode previewMode = MenuPreviewMode.StaticSprite)
         {
-            Title = string.IsNullOrWhiteSpace(title) ? "GTA-Anything Dispatch" : title.Trim();
-            Subtitle = subtitle ?? string.Empty;
-            PreviewMode = previewMode;
+            _title = string.IsNullOrWhiteSpace(title) ? "GTA-Anything Dispatch" : title.Trim();
+            _subtitle = subtitle ?? string.Empty;
+            _previewMode = previewMode;
         }
 
         /// <summary>
@@ -115,7 +131,7 @@ namespace GtaAnything.Runtime.UI
         {
             if (card == null)
             {
-                throw new ArgumentNullException(nameof(card));
+                throw new ArgumentNullException("card");
             }
             _cards.Add(card);
         }
@@ -153,7 +169,11 @@ namespace GtaAnything.Runtime.UI
 
             SelectedIndex = normalized;
             StaticMenuCard current = CurrentCard;
-            OnCardHighlighted?.Invoke(current);
+            Action<StaticMenuCard> handler = OnCardHighlighted;
+            if (handler != null)
+            {
+                handler(current);
+            }
             return current;
         }
 
@@ -167,7 +187,11 @@ namespace GtaAnything.Runtime.UI
             IsOpen = false;
             if (confirmed != null)
             {
-                OnCardConfirmed?.Invoke(confirmed);
+                Action<StaticMenuCard> handler = OnCardConfirmed;
+                if (handler != null)
+                {
+                    handler(confirmed);
+                }
             }
             return confirmed;
         }

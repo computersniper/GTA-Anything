@@ -136,3 +136,42 @@ tests\test_transpiler_and_deploy.py::test_profile_manager_lock_and_dry_run PASSE
 - **Total Collected**: `34` tests across 5 suites (`test_diagnose_and_cli_e2e.py`, `test_ir_and_mapper.py`, `test_m1_sim_viz_and_rph.py`, `test_preflight_and_assets.py`, `test_transpiler_and_deploy.py`)
 - **Result**: **34 passed, 0 failed** (`8.27s`)
 - **Clean-Room Hygiene**: `test_repository_clean_room_hygiene` PASSED (`0` binary violations, `0` personal machine paths)
+
+
+---
+
+## Part 4: M2 & Live Compiler (`v0.3.0`) Automated Verification & Execution Report
+
+### 4.1 `v0.3.0` Scope & New Test Suite (`tests/test_m2_polyglot_fixer_and_compiler.py`)
+
+- **Package Version**: `gta-anything 0.3.0`
+- **New Flagship Example (Contract #04)**: `examples/external_pizza_rush_src/` (standalone 2D Python mini-game on a `0..100` grid canvas with `DeliveryState(Enum)` and zero GTA imports -> extracted via `polyglot_ast.py`, projected onto Vespucci street coordinates, `faggio` + `s_m_y_ammucity_01`, 7-layer `L1–L7` simulation pass)
+- **New `v0.3.0` Test Coverage (5 tests)**:
+  - `test_polyglot_ast_extracts_pizza_rush_and_simulates_l7`: Verifies `extract_gameplay_ir` on `examples/external_pizza_rush_src` produces a valid `GameplayIR`, projects 2D coordinates to Los Santos street coordinates with non-zero road elevation `Z`, binds `faggio` scooter fallback, records line-level Python `EvidenceAnchor`s, and completes `simulate_gameplay_ir` at `L7` with `active_leases_after_teardown == 0`.
+  - `test_asset_fixer_reencodes_dxt1_script_rt_and_repairs_dlclist`: Verifies `fix_assets` on a synthetic multi-mip `DXT1` `script_rt_dials_race.dds` and malformed `dlclist.xml`, confirming `dry_run=True` non-mutation, output `.dds` `mipMapCount == 1` (offset 28) and `B8G8R8A8_UNORM` 32-bit uncompressed `DDS_PIXELFORMAT` (offset 76), deduplicated `dlclist.xml`, and `audit_assets(..., target_edition="enhanced_gen9")` passing with `0` errors.
+  - `test_offline_standalone_dll_compilation[ir_json-...]`: Verifies offline clean-room `compile_csharp_mod` on transpiled `metro_shuttle_loop` emits `GtaAnything.Runtime.dll` and `MetroShuttleLoop.dll` with `size > 0` and PE `b"MZ"` headers.
+  - `test_offline_standalone_dll_compilation[polyglot_py-...]`: Verifies offline clean-room `compile_csharp_mod` on transpiled `external_pizza_rush_src` emits `GtaAnything.Runtime.dll` and `ExternalPizzaRushSrc.dll` with `size > 0` and PE `b"MZ"` headers.
+  - `test_cli_v030_json_subcommands_e2e`: Verifies `gta-anything --json` for `asset-fix`, `pipeline --compile`, and `build-dll` end-to-end.
+
+### 4.2 Full `v0.3.0` `pytest -v` Output
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0
+rootdir: ./GTA-Anything
+configfile: pyproject.toml
+testpaths: tests
+plugins: langsmith-0.8.5, anyio-4.10.0
+collected 39 items
+
+tests\test_diagnose_and_cli_e2e.py ...                                   [  7%]
+tests\test_ir_and_mapper.py .............                                [ 41%]
+tests\test_m1_sim_viz_and_rph.py .........                               [ 64%]
+tests\test_m2_polyglot_fixer_and_compiler.py .....                       [ 76%]
+tests\test_preflight_and_assets.py .....                                 [ 89%]
+tests\test_transpiler_and_deploy.py ....                                 [100%]
+
+============================= 39 passed in 13.03s =============================
+```
+
+- **Clean-Room Hygiene**: `test_repository_clean_room_hygiene` PASSED (`0` binary violations, `0` personal machine paths)

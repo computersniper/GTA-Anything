@@ -23,9 +23,9 @@ Always follow the 8-Phase SOP defined in [`HARNESS.md`](../../HARNESS.md). Alway
 | **Phase 0** | Check disk space, Windows commit memory, dual build IDs, running processes, and hotkey conflicts | `gta-anything --json preflight [--game-dir PATH] [--hotkey KEY]` |
 | **Phase 1** | Extract evidence-backed `GameplayIR` from `spec.md`, `routes/*.xml`, `.json`, or source directories | `gta-anything --json extract <source_path> -o gameplay_ir.json [--edition enhanced_gen9\|legacy_gen8]` |
 | **Phase 2** | Validate IR safety invariants (vanilla fallback, no live 3D menu spawn, `Teardown` reachability) | `gta-anything --json validate-ir <ir_path>` |
-| **Phase 3** | Map IR to GTA world catalog and generate clean-room C# project targeting `GtaAnything.Runtime` | `gta-anything --json transpile <ir_path> -o <out_dir>` |
-| **Phase 4** | Audit `.yft`/`.ytd`/`.dds`/`dlclist.xml` against the 5-Stage Gen8/Gen9 Asset Gates | `gta-anything --json asset-check <path> [--edition enhanced_gen9\|legacy_gen8]` |
-| **Phase 5** | Run offline end-to-end pipeline & verify L1–L7 Acceptance Evidence Ladder (`TEST.md`) | `gta-anything --json pipeline <source_path> -o <out_dir> [--edition enhanced_gen9\|legacy_gen8]` |
+| **Phase 3** | Map IR to GTA world catalog, generate clean-room C# project, and compile PE `.dll` assemblies | `gta-anything --json transpile <ir_path> -o <out_dir>`<br>`gta-anything --json build-dll <mod_dir> [--game-dir PATH] [-o OUT_DIR] [--edition ...]` |
+| **Phase 4** | Audit `.yft`/`.ytd`/`.dds`/`dlclist.xml` against the 5-Stage Gen8/Gen9 Asset Gates & auto-reencode `script_rt_*` | `gta-anything --json asset-check <path> [--edition enhanced_gen9\|legacy_gen8]`<br>`gta-anything --json asset-fix <path> [-o OUT_DIR] [--edition ...] [--dry-run]` |
+| **Phase 5** | Run offline end-to-end pipeline (optionally with `--compile`) & verify L1–L7 Acceptance Evidence Ladder (`TEST.md`) | `gta-anything --json pipeline <source_path> -o <out_dir> [--edition enhanced_gen9\|legacy_gen8] [--compile] [--game-dir PATH]` |
 | **Phase 6** | Stage, switch, or rollback isolated mod profiles with lock-file guard and `--dry-run` preview | `gta-anything --json profile <status\|stage\|switch\|rollback> ... [--dry-run]` |
 | **Phase 7** | Correlate multi-source logs (`ScriptHookV.log`, `ScriptHookVDotNet.log`, `.jsonl`) & memory telemetry | `gta-anything --json diagnose <log_paths...> [--commit-mb FLOAT]` |
 
@@ -110,11 +110,21 @@ gta-anything --json diagnose ScriptHookV.log ScriptHookVDotNet.log metro_shuttle
 - `issues`: Categorized into `environment`, `loader`, `asset`, or `script_logic`
 - `recommendations`: Concrete remediation steps
 
-### 2.8 `pipeline` — One-Shot Offline E2E Pipeline
+### 2.8 `pipeline` — One-Shot Offline E2E Pipeline (with Optional `--compile`)
 ```bash
 gta-anything --json pipeline examples/harbor_courier_dispatch/gameplay_ir.json -o /tmp/harbor_build --edition enhanced_gen9
+gta-anything --json pipeline examples/external_pizza_rush_src -o /tmp/pizza_build --edition enhanced_gen9 --compile
 ```
-Chains `extract` → `validate-ir` → `transpile` → `asset-check` in a single deterministic invocation.
+Chains `extract` → `validate-ir` → `transpile` → (optional `build-dll`) → `asset-check` → `simulate` → `visualize` in a single deterministic invocation.
+
+### 2.9 `asset-fix` & `build-dll` (`v0.3.0`)
+```bash
+# Auto-reencode legacy DXT1/DXT3/DXT5 multi-mip script_rt_* DDS textures to single-mip B8G8R8A8_UNORM and repair dlclist.xml
+gta-anything --json asset-fix /path/to/addon_assets -o /tmp/fixed_assets --edition enhanced_gen9 [--dry-run]
+
+# Compile transpiled C# mod into PE .dll assemblies (standalone clean-room or linked against local ScriptHookVDotNet3.dll / RAGEPluginHook.dll)
+gta-anything --json build-dll /tmp/pizza_build -o /tmp/pizza_build/bin --edition enhanced_gen9 [--game-dir "<GAME_DIR>"]
+```
 
 ---
 
@@ -147,3 +157,5 @@ When writing, reviewing, or debugging GTA V mods, **NEVER** violate these rules:
 - **Clean-Room Flagship Examples**:
   - [`../../examples/metro_shuttle_loop/`](../../examples/metro_shuttle_loop/): Urban circular bus transit loop (`bus`/`airbus`, 8 ordered downtown stops in `routes/ls_downtown_loop.xml`, static sprite preview, stop dwell, passenger boarding, fare tally, shift teardown).
   - [`../../examples/harbor_courier_dispatch/`](../../examples/harbor_courier_dispatch/): Port of Los Santos commercial dispatch loop (`mule`/`benson`, on-duty toggle, dispatch callout, inspection zone navigation, NPC coordinator interaction, off-duty teardown).
+  - [`../../examples/vinewood_patrol_rph/`](../../examples/vinewood_patrol_rph/): RPH (`loader_target: "rph"`) emergency patrol response across Vinewood Hills & Downtown (`police3`/`fbi2` + `s_m_y_ranger_01`).
+  - [`../../examples/external_pizza_rush_src/`](../../examples/external_pizza_rush_src/): Standalone external 2D Python mini-game ("Vespucci Pizza Rush", `0..100` canvas, zero GTA imports) automatically extracted via `polyglot_ast` and projected onto Vespucci street coordinates (`faggio` + `s_m_y_ammucity_01`).

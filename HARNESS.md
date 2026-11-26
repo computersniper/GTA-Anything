@@ -62,9 +62,11 @@ flowchart LR
 借鉴 `REA (Reverse Engineer Anything)`，**严禁仅凭直觉脑补玩法结构**。必须从授权输入（需求文档 `spec.md`、业务配置 `routes/*.xml` 或源码目录）中提取带证据锚点 (`EvidenceAnchor`) 的中间表示 `Gameplay IR (G-IR)`。
 
 ### 执行步骤
-1. **运行提取器**：
+1. **运行提取器（支持文档/XML 与多语言源码仓库 AST 提取）**：
    ```bash
    gta-anything --json extract examples/metro_shuttle_loop/spec.md -o gameplay_ir.json --edition enhanced_gen9
+   # 或直接从外部 Python/JS/C#/Lua 小游戏源码目录提取并自动投影 2D 坐标至洛圣都真实街区路网：
+   gta-anything --json extract examples/external_pizza_rush_src -o pizza_ir.json --edition enhanced_gen9
    ```
 2. **拆解四大核心契约**：
    - **角色与实体槽位 (`entities`)**：区分玩家执勤载具（`is_player_vehicle: true`）与交互 NPC（乘客、调度员、目标货车）。
@@ -101,9 +103,13 @@ flowchart LR
 将通过校验的 `Gameplay IR` 转译为基于 `GtaAnything.Runtime` 洁净室兼容层 SDK 的 C# 模组工程。
 
 ### 执行步骤
-1. **调用转译器生成 C# 模组工程**：
+1. **调用转译器生成 C# 模组工程并编译 PE `.dll` 产物 (`transpile` + `build-dll`)**：
    ```bash
    gta-anything --json transpile gameplay_ir.json -o build/metro_shuttle_loop
+   # 离线洁净室编译（输出 GtaAnything.Runtime.dll 与 <ModClassName>.dll，校验 PE MZ 头）
+   gta-anything --json build-dll build/metro_shuttle_loop --edition enhanced_gen9
+   # 若传入用户本地游戏目录 --game-dir，则自动只读探测 ScriptHookVDotNet3.dll / RAGEPluginHook.dll 并链接实机脚本：
+   gta-anything --json build-dll build/metro_shuttle_loop --game-dir "<GAME_DIR>" --edition enhanced_gen9
    ```
 2. **检查生成的四大核心工件**：
    - `<ModClassName>.csproj`：同时包含 `GTAV_ENHANCED` (Gen9) 与 `GTAV_LEGACY` (Gen8) 条件编译配置，并引用 `GtaAnything.Runtime`。
@@ -123,9 +129,12 @@ flowchart LR
 当模组在原版基线（Vanilla Baseline）跑通后，若用户需要挂载自定义 Add-on 载具或纹理资产（`.yft` / `.ytd` / `.dds` / `dlclist.xml`），必须依次通过 **五道独立资产门禁 (5-Stage Asset Gates)**。
 
 ### 执行步骤
-1. **运行静态资产审计器（Gate 1 & Gate 2）**：
+1. **运行静态资产审计器（Gate 1 & Gate 2）与自动修复重编码 (`asset-fix`)**：
    ```bash
    gta-anything --json asset-check <ASSET_DIR_OR_FILE> --edition enhanced_gen9
+   # 若发现遗留 DXT1/DXT3/DXT5 多 mip script_rt_* 纹理或 dlclist.xml 格式问题，可先 --dry-run 预演后自动重编码为单 mip B8G8R8A8_UNORM：
+   gta-anything --json asset-fix <ASSET_DIR_OR_FILE> -o <FIXED_DIR> --edition enhanced_gen9 --dry-run
+   gta-anything --json asset-fix <ASSET_DIR_OR_FILE> -o <FIXED_DIR> --edition enhanced_gen9
    ```
 2. **逐门禁核验标准**：
 
@@ -155,7 +164,7 @@ flowchart LR
 ### 离线自动化测试执行
 ```bash
 python -m pytest -v
-gta-anything --json pipeline examples/metro_shuttle_loop/spec.md -o <TMP_OUT_DIR> --edition enhanced_gen9
+gta-anything --json pipeline examples/metro_shuttle_loop/spec.md -o <TMP_OUT_DIR> --edition enhanced_gen9 --compile
 ```
 
 ---

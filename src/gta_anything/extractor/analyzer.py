@@ -8,6 +8,10 @@ import re
 from typing import Any
 import xml.etree.ElementTree as ET
 
+from gta_anything.extractor.polyglot_ast import (
+    extract_polyglot_repo_ir,
+    project_coords_to_los_santos,
+)
 from gta_anything.models.ir import (
     EntitySlot,
     EvidenceAnchor,
@@ -601,155 +605,11 @@ def _extract_from_source_directory(
     mod_id: str | None,
     target_edition: str,
 ) -> GameplayIR:
-    evidence: list[EvidenceAnchor] = []
-    found_vehicles: list[str] = []
-    found_peds: list[str] = []
-    stops: list[StopNode] = []
-
-    code_files = sorted(
-        p
-        for p in src_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in {".py", ".cs", ".js", ".ts", ".xml", ".json", ".md"}
-    )
-
-    coord_re = re.compile(r"(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)")
-
-    for fpath in code_files[:30]:
-        rel = str(fpath.relative_to(src_dir)).replace("\\", "/")
-        if fpath.suffix.lower() == ".xml" and fpath.name.lower() != "dlclist.xml":
-            try:
-                xml_tracks, xml_ev = _parse_xml_route_file(
-                    fpath, rel, "primary_service_vehicle"
-                )
-                for t in xml_tracks:
-                    stops.extend(t.stops)
-                evidence.extend(xml_ev)
-                continue
-            except ET.ParseError:
-                pass
-
-        text = fpath.read_text(encoding="utf-8", errors="replace")
-        for line_no, line in enumerate(text.splitlines(), start=1):
-            low = line.lower()
-            for v in KNOWN_VANILLA_VEHICLES:
-                if re.search(rf"\b{re.escape(v)}\b", low) and v not in found_vehicles:
-                    found_vehicles.append(v)
-                    evidence.append(
-                        EvidenceAnchor(
-                            source_file=rel,
-                            locator=f"L{line_no}",
-                            extracted_fact=f"Detected vanilla vehicle reference '{v}'.",
-                            confidence=0.92,
-                        )
-                    )
-            for p in KNOWN_VANILLA_PEDS:
-                if re.search(rf"\b{re.escape(p)}\b", low) and p not in found_peds:
-                    found_peds.append(p)
-                    evidence.append(
-                        EvidenceAnchor(
-                            source_file=rel,
-                            locator=f"L{line_no}",
-                            extracted_fact=f"Detected vanilla NPC ped reference '{p}'.",
-                            confidence=0.91,
-                        )
-                    )
-            m = coord_re.search(line)
-            if m and len(stops) < 12:
-                stops.append(
-                    StopNode(
-                        index=len(stops),
-                        name=f"Waypoint {len(stops) + 1}",
-                        x=float(m.group(1)),
-                        y=float(m.group(2)),
-                        z=float(m.group(3)),
-                        dwell_seconds=6,
-                    )
-                )
-                evidence.append(
-                    EvidenceAnchor(
-                        source_file=rel,
-                        locator=f"L{line_no}",
-                        extracted_fact=f"Extracted world coordinate waypoint ({m.group(1)}, {m.group(2)}, {m.group(3)}).",
-                        confidence=0.90,
-                    )
-                )
-
-    resolved_id = mod_id or _slugify(src_dir.name)
-    veh_model = found_vehicles[0] if found_vehicles else "bus"
-    ped_model = found_peds[0] if found_peds else "a_m_y_business_01"
-
-    if not stops:
-        stops = [
-            StopNode(0, "Depot Start", 436.2, -645.8, 28.7, 6),
-            StopNode(1, "City Center", 215.4, -810.1, 30.7, 8),
-        ]
-
-    if not evidence:
-        evidence.append(
-            EvidenceAnchor(
-                source_file=src_dir.name,
-                locator="L1",
-                extracted_fact="Synthesized baseline Gameplay IR from source directory scan.",
-                confidence=0.85,
-            )
-        )
-
-    return GameplayIR(
-        schema_version="0.1.0",
-        meta=ModMeta(
-            id=resolved_id,
-            name=resolved_id.replace("_", " ").title(),
-            version="0.1.0",
-            author="GTA-Anything Clean-Room",
-            license="MIT",
-            description=f"Clean-room Gameplay IR extracted from {src_dir.name}.",
-            source_kind="source_repo",
-            target_editions=[target_edition, "legacy_gen8"]
-            if target_edition == "enhanced_gen9"
-            else [target_edition, "enhanced_gen9"],
-        ),
-        loader_target="shvdn_enhanced" if target_edition == "enhanced_gen9" else "shvdn_v3",
-        inputs=InputBindings(
-            activation_key="F9",
-            modifier_key="LeftShift",
-            menu_library="LemonUI",
-            avoid_conflicts_with=["F4", "Insert", "B", "N", "E"],
-        ),
-        ui_spec=MenuUISpec(
-            title=resolved_id.replace("_", " ").title(),
-            subtitle="Clean-Room Operational Menu",
-            preview_mode="static_sprite",
-        ),
-        entities=[
-            EntitySlot(
-                slot_id="primary_service_vehicle",
-                role="player_service_vehicle",
-                vanilla_fallback_model=veh_model,
-                preferred_addon_model=None,
-                stream_timeout_ms=5000,
-                is_player_vehicle=True,
-            ),
-            EntitySlot(
-                slot_id="primary_service_npc",
-                role="boarding_npc",
-                vanilla_fallback_model=ped_model,
-                preferred_addon_model=None,
-                stream_timeout_ms=3000,
-                is_player_vehicle=False,
-            ),
-        ],
-        routes_or_zones=[
-            SpatialTrack(
-                track_id=f"{resolved_id}_track_1",
-                name=f"{resolved_id.replace('_', ' ').title()} Primary Track",
-                mode="ordered_stops",
-                stops=stops,
-                fare_or_reward=20,
-                allowed_vehicle_slots=["primary_service_vehicle"],
-            )
-        ],
-        state_machine=_default_state_machine(is_dispatch=False),
-        evidence=evidence,
+    """Delegate source codebase extraction to the Polyglot AST & Los Santos Auto-Projector engine."""
+    return extract_polyglot_repo_ir(
+        repo_dir=src_dir,
+        mod_id=mod_id,
+        target_edition=target_edition,
     )
 
 

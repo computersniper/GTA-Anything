@@ -1,4 +1,5 @@
-"""Clean-room C# transpiler generating `<ModClassName>.csproj`, `ModEntrypoint.cs`,
+"""Clean-room C# transpiler generating `<ModClassName>.csproj`, `ModEntrypoint.cs`
+(including `#if SHVDN_REFERENCED` real `GTA.Script` live host wiring),
 optional `RphPluginBridge.cs` (for `loader_target == "rph"`), 2D SVG menu preview cards
 (`cards/<track_id>_card.svg`), `<ModClassName>Config.json`, and `BUILD_AND_VERIFY.md`
 targeting `GtaAnything.Runtime`.
@@ -145,6 +146,22 @@ def _render_mod_entrypoint_cs(
         else "null"
     )
 
+    blip_sprite_id = (
+        int(world_mapping["track_bindings"][0]["blip_sprite_id"])
+        if world_mapping["track_bindings"]
+        else 513
+    )
+    blip_color_id = (
+        int(world_mapping["track_bindings"][0]["blip_color_id"])
+        if world_mapping["track_bindings"]
+        else 3
+    )
+    fare_or_reward = (
+        int(world_mapping["track_bindings"][0]["fare_or_reward"])
+        if world_mapping["track_bindings"]
+        else 15
+    )
+
     # Render state registrations
     state_reg_lines: list[str] = []
     for st in ir.state_machine.states:
@@ -170,10 +187,10 @@ def _render_mod_entrypoint_cs(
             f'                itemId: "{_cs_escape(track["track_id"])}",\n'
             f'                title: "{_cs_escape(track["name"])}",\n'
             f'                subtitle: "Stops: {track["stop_count"]} | Reward/Fare: ${track["fare_or_reward"]}",\n'
-            f'                spriteDict: "gtav_cleanroom_cards",\n'
-            f'                spriteName: "{_cs_escape(track["track_id"])}_card",\n'
             f'                vanillaFallbackModel: "{_cs_escape(primary_veh["vanilla_fallback_model"])}",\n'
-            f"                preferredAddonModel: {preferred_addon_cs}\n"
+            f"                preferredAddonModel: {preferred_addon_cs},\n"
+            f'                spriteDict: "gtav_cleanroom_cards",\n'
+            f'                spriteName: "{_cs_escape(track["track_id"])}_card"\n'
             "            ));"
         )
         for stop in track["stops"]:
@@ -197,41 +214,55 @@ def _render_mod_entrypoint_cs(
     cards_block = "\n".join(card_lines)
     stops_block = "\n".join(stop_lines)
 
-    return f"""// Auto-generated Clean-Room GTA Mod by GTA-Anything v0.2.0
+    activation_key_escaped = _cs_escape(hotkey_binding["activation_key"])
+
+    return f"""// Auto-generated Clean-Room GTA Mod by GTA-Anything v0.3.0
 // Mod ID: {ir.meta.id} | Loader Target: {ir.loader_target} | License: {ir.meta.license}
 // Architectural Invariants Enforced:
 //   1. UI-Spawn Decoupling (preview_mode = {ir.ui_spec.preview_mode}, never live_3d_spawn)
 //   2. SafeModelStreamer with mandatory ReleaseModelRequest on timeout + vanilla fallback ('{primary_veh["vanilla_fallback_model"]}')
 //   3. WorldSession leased entity tracking and deterministic Teardown cleanup
 //   4. Dual Build ID detection & L1-L7 PhasedJsonLogger telemetry
+//   5. C# 5 compatible syntax for universal compilation (csc.exe .NET 4.x & modern dotnet SDK)
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using GtaAnything.Runtime.Compatibility;
 using GtaAnything.Runtime.Lifecycle;
 using GtaAnything.Runtime.Streaming;
 using GtaAnything.Runtime.Telemetry;
 using GtaAnything.Runtime.UI;
+#if SHVDN_REFERENCED
+using System.Windows.Forms;
+#endif
 
 namespace GtaAnything.Mods.{mod_class_name}
 {{
     public sealed class WaypointNode
     {{
-        public int Index {{ get; }}
-        public string Name {{ get; }}
-        public float X {{ get; }}
-        public float Y {{ get; }}
-        public float Z {{ get; }}
-        public int DwellSeconds {{ get; }}
+        private readonly int _index;
+        private readonly string _name;
+        private readonly float _x;
+        private readonly float _y;
+        private readonly float _z;
+        private readonly int _dwellSeconds;
+
+        public int Index {{ get {{ return _index; }} }}
+        public string Name {{ get {{ return _name; }} }}
+        public float X {{ get {{ return _x; }} }}
+        public float Y {{ get {{ return _y; }} }}
+        public float Z {{ get {{ return _z; }} }}
+        public int DwellSeconds {{ get {{ return _dwellSeconds; }} }}
 
         public WaypointNode(int index, string name, float x, float y, float z, int dwellSeconds)
         {{
-            Index = index;
-            Name = name;
-            X = x;
-            Y = y;
-            Z = z;
-            DwellSeconds = dwellSeconds;
+            _index = index;
+            _name = name;
+            _x = x;
+            _y = y;
+            _z = z;
+            _dwellSeconds = dwellSeconds;
         }}
     }}
 
@@ -242,7 +273,11 @@ namespace GtaAnything.Mods.{mod_class_name}
         public const string LoaderTarget = "{_cs_escape(ir.loader_target)}";
         public const string PrimaryVanillaFallbackModel = "{_cs_escape(primary_veh["vanilla_fallback_model"])}";
         public const string PrimaryNpcFallbackModel = "{_cs_escape(ped_fallback)}";
+        public const string ActivationKeyName = "{activation_key_escaped}";
         public const int DefaultStreamTimeoutMs = {int(primary_veh["stream_timeout_ms"])};
+        public const int DefaultBlipSpriteId = {blip_sprite_id};
+        public const int DefaultBlipColorId = {blip_color_id};
+        public const int DefaultFareOrReward = {fare_or_reward};
 
 #if GTAV_ENHANCED
         public const string CompiledEdition = "enhanced_gen9";
@@ -265,10 +300,32 @@ namespace GtaAnything.Mods.{mod_class_name}
         private IBlipHandle _activeStopBlip;
         private int _currentWaypointIndex;
         private int _accumulatedFareOrReward;
+        private float _dwellElapsedSeconds;
+        private float _hudRefreshAccumulator;
 
-        public string CurrentState => _stateMachine.CurrentState;
-        public int ActiveLeasedEntities => _session.ActiveLeaseCount;
-        public int AccumulatedFareOrReward => _accumulatedFareOrReward;
+        public string CurrentState {{ get {{ return _stateMachine.CurrentState; }} }}
+        public int ActiveLeasedEntities {{ get {{ return _session.ActiveLeaseCount; }} }}
+        public int AccumulatedFareOrReward {{ get {{ return _accumulatedFareOrReward; }} }}
+        public bool MenuIsOpen {{ get {{ return _menu.IsOpen; }} }}
+        public int MenuSelectedIndex {{ get {{ return _menu.SelectedIndex; }} }}
+        public int MenuCardCount {{ get {{ return _menu.Cards.Count; }} }}
+        public StaticMenuCard CurrentMenuCard {{ get {{ return _menu.CurrentCard; }} }}
+        public int CurrentWaypointIndex {{ get {{ return _currentWaypointIndex; }} }}
+        public int WaypointCount {{ get {{ return _waypoints.Count; }} }}
+        public bool IsShiftActive
+        {{
+            get {{ return string.Equals(_stateMachine.CurrentState, "{_cs_escape(active_state_name)}", StringComparison.OrdinalIgnoreCase); }}
+        }}
+
+        public WaypointNode CurrentWaypoint
+        {{
+            get
+            {{
+                return _currentWaypointIndex >= 0 && _currentWaypointIndex < _waypoints.Count
+                    ? _waypoints[_currentWaypointIndex]
+                    : null;
+            }}
+        }}
 
         public ModEntrypoint(IGtaWorldHost host = null, string telemetryLogPath = null)
         {{
@@ -277,9 +334,15 @@ namespace GtaAnything.Mods.{mod_class_name}
             _session = new WorldSession(_host);
             _streamer = new SafeModelStreamer(_host);
 
-            var buildInfo = GameEditionDetector.DetectFromEnvironment();
+            GameBuildInfo buildInfo = GameEditionDetector.DetectFromEnvironment();
             _logger.LogLayerReached(2, "loader_boot", "BuildDetected",
-                $"Edition={{buildInfo.Edition}}, Exe={{buildInfo.DiskExecutableVersion}}, SHV={{buildInfo.ScriptHookBuildAlias}}, Loader={{LoaderTarget}}");
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Edition={{0}}, Exe={{1}}, SHV={{2}}, Loader={{3}}",
+                    buildInfo.Edition,
+                    buildInfo.DiskExecutableVersion,
+                    buildInfo.ScriptHookBuildAlias,
+                    LoaderTarget));
 
             _stateMachine = new OperationalStateMachine(
                 initialState: "{_cs_escape(ir.state_machine.initial_state)}",
@@ -297,14 +360,24 @@ namespace GtaAnything.Mods.{mod_class_name}
 
             ConfigureMenuAndWaypoints();
 
-            var chord = new HotkeyChord("{_cs_escape(hotkey_binding["activation_key"])}", {modifier_cs});
+            HotkeyChord chord = new HotkeyChord("{activation_key_escaped}", {modifier_cs});
             _loaderAdapter = new LoaderAdapter(_host, chord, {loader_enum});
-            _loaderAdapter.OnActivationChordPressed += _ => OnActivationHotkeyPressed();
+            _loaderAdapter.OnActivationChordPressed += HandleActivationChord;
             _loaderAdapter.OnTick += OnTick;
             _loaderAdapter.OnAbort += OnAbort;
 
             _logger.LogLayerReached(3, "script_init", "SessionInitialized",
-                $"Mod={{ModName}}, CompiledEdition={{CompiledEdition}}, Waypoints={{_waypoints.Count}}");
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Mod={{0}}, CompiledEdition={{1}}, Waypoints={{2}}",
+                    ModName,
+                    CompiledEdition,
+                    _waypoints.Count));
+        }}
+
+        private void HandleActivationChord(HotkeyChord chord)
+        {{
+            OnActivationHotkeyPressed();
         }}
 
         private void ConfigureStateMachine()
@@ -323,38 +396,84 @@ namespace GtaAnything.Mods.{mod_class_name}
 
         public void OnActivationHotkeyPressed()
         {{
-            _stateMachine.ExecuteGuarded(() =>
+            _stateMachine.ExecuteGuarded(delegate
             {{
                 if (_stateMachine.CurrentState == "{_cs_escape(ir.state_machine.initial_state)}")
                 {{
                     _stateMachine.FireOrTeardown("HotkeyPressed");
                     _menu.Open();
+                    StaticMenuCard current = _menu.CurrentCard;
+                    string cardTitle = current != null ? current.Title : "None";
                     _logger.LogLayerReached(4, "ui_interaction", "MenuOpened",
-                        $"Card={{_menu.CurrentCard?.Title}}, PreviewMode={preview_enum}");
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Card={{0}}, PreviewMode={preview_enum}",
+                            cardTitle));
+                    ShowStaticMenuSubtitle();
                 }}
             }}, OnRuntimeException);
+        }}
+
+        public void CancelMenuToIdle()
+        {{
+            if (_menu.IsOpen)
+            {{
+                _menu.Close();
+                _stateMachine.ForceTeardown("MenuCancelled");
+                string ignored;
+                _stateMachine.TryFire("ResourcesReleased", out ignored);
+                _host.ShowSubtitle(string.Format(CultureInfo.InvariantCulture, "[{{0}}] Dispatch menu closed.", ModName), 1500);
+            }}
         }}
 
         public StaticMenuCard ScrollMenuPreview(int newIndex)
         {{
             // UI-Spawn Decoupling invariant: updates static card metadata/2D sprite only, NEVER spawns 3D vehicles
-            var card = _menu.OnIndexChanged(newIndex);
-            _logger.LogEvent("L4", "ui_interaction", "StaticPreviewUpdated", $"Index={{newIndex}}, Title={{card?.Title}}");
+            StaticMenuCard card = _menu.OnIndexChanged(newIndex);
+            string cardTitle = card != null ? card.Title : "None";
+            _logger.LogEvent("L4", "ui_interaction", "StaticPreviewUpdated",
+                string.Format(CultureInfo.InvariantCulture, "Index={{0}}, Title={{1}}", newIndex, cardTitle));
+            ShowStaticMenuSubtitle();
             return card;
+        }}
+
+        public void ShowStaticMenuSubtitle()
+        {{
+            StaticMenuCard card = _menu.CurrentCard;
+            if (card == null)
+            {{
+                return;
+            }}
+            string msg = string.Format(
+                CultureInfo.InvariantCulture,
+                "~b~[{{0}}]~s~ ({{1}}/{{2}}) ~y~{{3}}~s~ | {{4}} | ~g~ENTER~s~ Start  ~r~BACK~s~ Cancel  ~w~UP/DOWN~s~ Cycle",
+                ModName,
+                _menu.SelectedIndex + 1,
+                _menu.Cards.Count,
+                card.Title,
+                card.Subtitle);
+            _host.ShowSubtitle(msg, 2500);
         }}
 
         public bool ConfirmMenuAndStartShift()
         {{
-            var selectedCard = _menu.ConfirmSelection();
+            StaticMenuCard selectedCard = _menu.ConfirmSelection();
             _stateMachine.FireOrTeardown("ShiftConfirmed");
 
-            var firstStop = _waypoints.Count > 0
+            WaypointNode firstStop = _waypoints.Count > 0
                 ? _waypoints[0]
                 : new WaypointNode(0, "Default Depot", 436.2f, -645.8f, 28.7f, 6);
 
-            var streamResult = _streamer.StreamAndSpawnVehicle(
-                preferredAddonModel: selectedCard?.PreferredAddonModel ?? {preferred_addon_cs},
-                vanillaFallbackModel: selectedCard?.VanillaFallbackModel ?? PrimaryVanillaFallbackModel,
+            string preferredModel = selectedCard != null && !string.IsNullOrWhiteSpace(selectedCard.PreferredAddonModel)
+                ? selectedCard.PreferredAddonModel
+                : {preferred_addon_cs};
+            string fallbackModel = selectedCard != null && !string.IsNullOrWhiteSpace(selectedCard.VanillaFallbackModel)
+                ? selectedCard.VanillaFallbackModel
+                : PrimaryVanillaFallbackModel;
+
+            StreamSpawnResult streamResult = _streamer.StreamAndSpawnVehicle(
+                preferredAddonModel: preferredModel,
+                vanillaFallbackModel: fallbackModel,
                 x: firstStop.X,
                 y: firstStop.Y,
                 z: firstStop.Z,
@@ -366,6 +485,7 @@ namespace GtaAnything.Mods.{mod_class_name}
             {{
                 _logger.LogEvent("L5", "resource_streaming_and_spawn", "CriticalStreamFailure",
                     streamResult.ErrorMessage ?? "Vehicle stream/spawn returned null");
+                _host.ShowNotification(string.Format(CultureInfo.InvariantCulture, "[{{0}}] Spawn failed; returning to idle.", ModName));
                 _stateMachine.FireOrTeardown("CriticalStreamFailure");
                 return false;
             }}
@@ -375,26 +495,114 @@ namespace GtaAnything.Mods.{mod_class_name}
             _activeServiceVehicle = _session.LeaseVehicle(streamResult.Vehicle);
             _activeServiceVehicle.Repair();
             _activeServiceVehicle.SetDoorsShut(instant: true);
+            _host.SeatPlayerInVehicle(_activeServiceVehicle, -1);
 
             _currentWaypointIndex = 0;
             _accumulatedFareOrReward = 0;
-            _activeStopBlip = _session.LeaseBlip(_host.CreateBlip(
-                firstStop.X, firstStop.Y, firstStop.Z,
-                sprite: {world_mapping["track_bindings"][0]["blip_sprite_id"] if world_mapping["track_bindings"] else 513},
-                color: {world_mapping["track_bindings"][0]["blip_color_id"] if world_mapping["track_bindings"] else 3},
-                label: firstStop.Name
-            ));
-            _activeStopBlip.SetRoute(true);
+            _dwellElapsedSeconds = 0f;
+            _hudRefreshAccumulator = 0f;
+            CreateWaypointBlip(firstStop);
 
             _stateMachine.FireOrTeardown("DriverSeated");
+            _host.ShowNotification(string.Format(
+                CultureInfo.InvariantCulture,
+                "[{{0}}] Shift started ({{1}}). Proceed to {{2}}.",
+                ModName,
+                streamResult.ResolvedModelName,
+                firstStop.Name));
             _logger.LogLayerReached(5, "resource_streaming_and_spawn", "ServiceVehicleSpawned",
-                $"Model={{streamResult.ResolvedModelName}}, UsedFallback={{streamResult.UsedFallback}}");
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Model={{0}}, UsedFallback={{1}}",
+                    streamResult.ResolvedModelName,
+                    streamResult.UsedFallback));
             return true;
+        }}
+
+        private void CreateWaypointBlip(WaypointNode stop)
+        {{
+            if (_activeStopBlip != null)
+            {{
+                _session.ReleaseEntity(_activeStopBlip, deleteImmediately: true);
+                _activeStopBlip = null;
+            }}
+            IBlipHandle blip = _host.CreateBlip(
+                stop.X, stop.Y, stop.Z,
+                sprite: DefaultBlipSpriteId,
+                color: DefaultBlipColorId,
+                label: stop.Name
+            );
+            if (blip != null)
+            {{
+                _activeStopBlip = _session.LeaseBlip(blip);
+                _activeStopBlip.SetRoute(true);
+            }}
+        }}
+
+        public void TickActiveOperation(float deltaSeconds)
+        {{
+            if (!IsShiftActive)
+            {{
+                return;
+            }}
+
+            WaypointNode stop = CurrentWaypoint;
+            if (stop == null)
+            {{
+                return;
+            }}
+
+            if (_activeServiceVehicle == null || !_activeServiceVehicle.Exists())
+            {{
+                _stateMachine.FireOrTeardown("ShiftAbortedOrVehicleDestroyed");
+                return;
+            }}
+
+            _host.DrawCheckpointMarker(stop.X, stop.Y, stop.Z, 4.0f);
+
+            float dist = _host.GetPlayerDistanceTo(stop.X, stop.Y, stop.Z);
+            float speed = _host.GetPlayerSpeed();
+
+            if (dist < 12.0f && speed < 3.5f)
+            {{
+                _dwellElapsedSeconds += Math.Max(0f, deltaSeconds);
+                int remaining = Math.Max(0, (int)Math.Ceiling(stop.DwellSeconds - _dwellElapsedSeconds));
+                _host.ShowSubtitle(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "~g~[{{0}}]~s~ At ~y~{{1}}~s~ | Service/Boarding: {{2}}s",
+                    ModName,
+                    stop.Name,
+                    remaining), 500);
+
+                if (_dwellElapsedSeconds >= stop.DwellSeconds)
+                {{
+                    _dwellElapsedSeconds = 0f;
+                    AdvanceOperationalStop();
+                }}
+            }}
+            else
+            {{
+                _dwellElapsedSeconds = 0f;
+                _hudRefreshAccumulator += Math.Max(0f, deltaSeconds);
+                if (_hudRefreshAccumulator >= 0.5f)
+                {{
+                    _hudRefreshAccumulator = 0f;
+                    _host.ShowSubtitle(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "~b~[{{0}}]~s~ Stop {{1}}/{{2}}: ~y~{{3}}~s~ ({{4:F0}}m) | Earned: ~g~${{5}}~s~ | ~r~BACK~s~ End",
+                        ModName,
+                        _currentWaypointIndex + 1,
+                        _waypoints.Count,
+                        stop.Name,
+                        dist,
+                        _accumulatedFareOrReward), 750);
+                }}
+            }}
         }}
 
         public void AdvanceOperationalStop()
         {{
-            _stateMachine.ExecuteGuarded(() =>
+            _stateMachine.ExecuteGuarded(delegate
             {{
                 if (_stateMachine.CurrentState != "{_cs_escape(active_state_name)}")
                 {{
@@ -407,10 +615,10 @@ namespace GtaAnything.Mods.{mod_class_name}
                     return;
                 }}
 
-                var stop = _waypoints[_currentWaypointIndex];
+                WaypointNode stop = _waypoints[_currentWaypointIndex];
                 if (_host.RequestModel(PrimaryNpcFallbackModel))
                 {{
-                    var passenger = _host.SpawnPed(PrimaryNpcFallbackModel, stop.X + 1.5f, stop.Y + 1.5f, stop.Z);
+                    IPedHandle passenger = _host.SpawnPed(PrimaryNpcFallbackModel, stop.X + 1.5f, stop.Y + 1.5f, stop.Z);
                     if (passenger != null && passenger.Exists())
                     {{
                         _session.LeasePed(passenger);
@@ -419,16 +627,43 @@ namespace GtaAnything.Mods.{mod_class_name}
                     _host.ReleaseModelRequest(PrimaryNpcFallbackModel);
                 }}
 
-                _accumulatedFareOrReward += {int(world_mapping["track_bindings"][0]["fare_or_reward"]) if world_mapping["track_bindings"] else 15};
+                _accumulatedFareOrReward += DefaultFareOrReward;
+                _host.ShowNotification(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "[{{0}}] Completed {{1}} (+${{2}} | Total: ${{3}})",
+                    ModName,
+                    stop.Name,
+                    DefaultFareOrReward,
+                    _accumulatedFareOrReward));
                 _logger.LogLayerReached(6, "active_operation", "StopCompleted",
-                    $"Stop={{stop.Name}}, Index={{stop.Index}}, TotalReward={{_accumulatedFareOrReward}}");
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Stop={{0}}, Index={{1}}, TotalReward={{2}}",
+                        stop.Name,
+                        stop.Index,
+                        _accumulatedFareOrReward));
 
                 _currentWaypointIndex++;
                 if (_currentWaypointIndex >= _waypoints.Count)
                 {{
                     _stateMachine.FireOrTeardown("FinalStopCompleted");
+                    _host.ShowNotification(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "[{{0}}] Shift complete! Stops: {{1}} | Total Reward: ${{2}}",
+                        ModName,
+                        _waypoints.Count,
+                        _accumulatedFareOrReward));
                     _logger.LogEvent("L6", "completion", "ShiftSummaryRecorded",
-                        $"StopsCompleted={{_waypoints.Count}}, FinalReward={{_accumulatedFareOrReward}}");
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "StopsCompleted={{0}}, FinalReward={{1}}",
+                            _waypoints.Count,
+                            _accumulatedFareOrReward));
+                    CompleteOrAbortShift();
+                }}
+                else
+                {{
+                    CreateWaypointBlip(_waypoints[_currentWaypointIndex]);
                 }}
             }}, OnRuntimeException);
         }}
@@ -446,7 +681,8 @@ namespace GtaAnything.Mods.{mod_class_name}
 
             if (_stateMachine.CurrentState == "{_cs_escape(ir.state_machine.cleanup_state)}")
             {{
-                _stateMachine.TryFire("ResourcesReleased", out _);
+                string ignored;
+                _stateMachine.TryFire("ResourcesReleased", out ignored);
             }}
         }}
 
@@ -456,8 +692,13 @@ namespace GtaAnything.Mods.{mod_class_name}
             int released = _session.DisposeAll();
             _activeServiceVehicle = null;
             _activeStopBlip = null;
+            _dwellElapsedSeconds = 0f;
             _logger.LogLayerReached(7, "cleanup", "TeardownCompleted",
-                $"ReleasedEntities={{released}}, LeasedEntitiesRemaining={{_session.ActiveLeaseCount}}");
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "ReleasedEntities={{0}}, LeasedEntitiesRemaining={{1}}",
+                    released,
+                    _session.ActiveLeaseCount));
         }}
 
         private void OnRuntimeException(Exception ex)
@@ -481,6 +722,128 @@ namespace GtaAnything.Mods.{mod_class_name}
             OnAbort();
         }}
     }}
+
+#if SHVDN_REFERENCED
+    /// <summary>
+    /// Live ScriptHookVDotNet3 host script for GTA V Enhanced (Gen9) and Legacy (Gen8).
+    /// Hooks Tick, KeyDown, and Aborted with UI-spawn decoupling and deterministic WorldSession cleanup.
+    /// </summary>
+    public sealed class {mod_class_name}ShvdnScript : GTA.Script
+    {{
+        private readonly ModEntrypoint _mod;
+        private readonly Keys _activationKey;
+        private readonly string _modifierKey;
+        private int _lastTickGameTime;
+
+        public {mod_class_name}ShvdnScript()
+        {{
+            _mod = new ModEntrypoint(new ShvdnWorldHostBridge());
+            _activationKey = ParseKey(ModEntrypoint.ActivationKeyName, Keys.F9);
+            _modifierKey = {modifier_cs};
+            _lastTickGameTime = GTA.Game.GameTime;
+
+            Tick += OnScriptTick;
+            KeyDown += OnScriptKeyDown;
+            Aborted += OnScriptAborted;
+        }}
+
+        private static Keys ParseKey(string keyName, Keys fallback)
+        {{
+            if (string.IsNullOrWhiteSpace(keyName))
+            {{
+                return fallback;
+            }}
+            Keys parsed;
+            if (Enum.TryParse<Keys>(keyName.Trim(), true, out parsed))
+            {{
+                return parsed;
+            }}
+            return fallback;
+        }}
+
+        private bool IsModifierSatisfied(KeyEventArgs e)
+        {{
+            if (string.IsNullOrWhiteSpace(_modifierKey))
+            {{
+                return true;
+            }}
+            if (string.Equals(_modifierKey, "Shift", StringComparison.OrdinalIgnoreCase))
+            {{
+                return e.Shift;
+            }}
+            if (string.Equals(_modifierKey, "Control", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(_modifierKey, "Ctrl", StringComparison.OrdinalIgnoreCase))
+            {{
+                return e.Control;
+            }}
+            if (string.Equals(_modifierKey, "Alt", StringComparison.OrdinalIgnoreCase))
+            {{
+                return e.Alt;
+            }}
+            return true;
+        }}
+
+        private void OnScriptTick(object sender, EventArgs e)
+        {{
+            int now = GTA.Game.GameTime;
+            float deltaSeconds = Math.Max(0f, (now - _lastTickGameTime) / 1000.0f);
+            _lastTickGameTime = now;
+
+            if (_mod.IsShiftActive)
+            {{
+                _mod.TickActiveOperation(deltaSeconds);
+            }}
+            _mod.OnTick();
+        }}
+
+        private void OnScriptKeyDown(object sender, KeyEventArgs e)
+        {{
+            if (e.KeyCode == _activationKey && IsModifierSatisfied(e))
+            {{
+                if (_mod.MenuIsOpen)
+                {{
+                    _mod.CancelMenuToIdle();
+                }}
+                else if (!_mod.IsShiftActive)
+                {{
+                    _mod.OnActivationHotkeyPressed();
+                }}
+                return;
+            }}
+
+            if (_mod.MenuIsOpen)
+            {{
+                if (e.KeyCode == Keys.Up)
+                {{
+                    _mod.ScrollMenuPreview(_mod.MenuSelectedIndex - 1);
+                }}
+                else if (e.KeyCode == Keys.Down)
+                {{
+                    _mod.ScrollMenuPreview(_mod.MenuSelectedIndex + 1);
+                }}
+                else if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Return)
+                {{
+                    _mod.ConfirmMenuAndStartShift();
+                }}
+                else if (e.KeyCode == Keys.Back)
+                {{
+                    _mod.CancelMenuToIdle();
+                }}
+                return;
+            }}
+
+            if (_mod.IsShiftActive && e.KeyCode == Keys.Back)
+            {{
+                _mod.CompleteOrAbortShift();
+            }}
+        }}
+
+        private void OnScriptAborted(object sender, EventArgs e)
+        {{
+            _mod.OnAbort();
+        }}
+    }}
+#endif
 }}
 """
 
@@ -490,9 +853,9 @@ def _render_rph_plugin_bridge_cs(
     ir: GameplayIR,
 ) -> str:
     """Render clean-room RAGE Plugin Hook entrypoint bridge (`RphPluginBridge.cs`)."""
-    return f"""// Auto-generated Clean-Room RAGE Plugin Hook (RPH) Bridge by GTA-Anything v0.2.0
+    return f"""// Auto-generated Clean-Room RAGE Plugin Hook (RPH) Bridge by GTA-Anything v0.3.0
 // Mod ID: {ir.meta.id} | Loader Target: rph | License: {ir.meta.license}
-// Compiles cleanly under netstandard2.0 without bundling RAGEPluginHookSDK.dll.
+// Compiles cleanly under netstandard2.0 and C# 5 (.NET 4.x csc.exe) without bundling RAGEPluginHookSDK.dll.
 // Define RPH_REFERENCED when linking against a user-supplied local RPH SDK assembly.
 
 using System;
@@ -518,7 +881,7 @@ namespace GtaAnything.Mods.{mod_class_name}
         private static ModEntrypoint _entrypoint;
         private static volatile bool _running;
 
-        public static bool IsRunning => _running;
+        public static bool IsRunning {{ get {{ return _running; }} }}
 
         /// <summary>
         /// RPH plugin entry method invoked by RAGEPluginHook.exe on plugin load.
@@ -595,24 +958,27 @@ def _render_build_and_verify_md(
     loader_note = (
         "- **Loader Chain**: RAGE Plugin Hook (`USE_RPH`, `RphPluginBridge.cs` with fiber-safe loop & `OnUnload` deterministic teardown)."
         if ir.loader_target == "rph"
-        else f"- **Loader Chain**: ScriptHookVDotNet (`USE_SHVDN`, target `{ir.loader_target}`)."
+        else f"- **Loader Chain**: ScriptHookVDotNet (`USE_SHVDN`, target `{ir.loader_target}`, live `GTA.Script` entrypoint `{mod_class_name}ShvdnScript` under `SHVDN_REFERENCED`)."
     )
     return f"""# {ir.meta.name} (`{mod_class_name}`) — Build & 7-Layer Verification Guide
 
-> Generated by **GTA-Anything Clean-Room Transpiler v0.2.0** (`schema_version = {ir.schema_version}`).
+> Generated by **GTA-Anything Clean-Room Transpiler v0.3.0** (`schema_version = {ir.schema_version}`).
 
 ---
 
-## 1. Compilation (`dotnet build`)
+## 1. Compilation (`gta-anything build-dll` or `dotnet build`)
 
-This project targets `netstandard2.0` and links against `GtaAnything.Runtime`. It supports conditional compilation for both **GTA V Enhanced (Gen9)** and **GTA V Legacy (Gen8)**:
+This project compiles cleanly via both `gta-anything build-dll` (supporting `.NET Framework 4.x csc.exe`, Roslyn, or `.NET SDK`) and `dotnet build` (`netstandard2.0`). It supports conditional compilation for both **GTA V Enhanced (Gen9)** and **GTA V Legacy (Gen8)**:
 
 ```bash
-# Build for GTA V Enhanced (Gen9)
-dotnet build {mod_class_name}.csproj -c Release -p:Edition=EnhancedGen9
+# Standalone clean-room DLL build (no proprietary game binaries required)
+gta-anything build-dll . --edition enhanced_gen9
 
-# Build for GTA V Legacy (Gen8)
-dotnet build {mod_class_name}.csproj -c Release -p:Edition=LegacyGen8
+# Live GTA V Enhanced SHVDN3 build (links against local ScriptHookVDotNet3.dll)
+gta-anything build-dll . --game-dir "<YOUR_GTAV_ENHANCED_DIR>" --edition enhanced_gen9
+
+# Or via dotnet SDK
+dotnet build {mod_class_name}.csproj -c Release -p:Edition=EnhancedGen9
 ```
 
 {loader_note}

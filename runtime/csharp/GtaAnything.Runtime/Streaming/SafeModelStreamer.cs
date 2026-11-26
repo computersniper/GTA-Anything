@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using GtaAnything.Runtime.Compatibility;
 
 namespace GtaAnything.Runtime.Streaming
@@ -8,11 +9,17 @@ namespace GtaAnything.Runtime.Streaming
     /// </summary>
     public sealed class StreamSpawnResult
     {
-        public bool Success { get; }
-        public bool UsedFallback { get; }
-        public string ResolvedModelName { get; }
-        public IVehicleHandle Vehicle { get; }
-        public string ErrorMessage { get; }
+        private readonly bool _success;
+        private readonly bool _usedFallback;
+        private readonly string _resolvedModelName;
+        private readonly IVehicleHandle _vehicle;
+        private readonly string _errorMessage;
+
+        public bool Success { get { return _success; } }
+        public bool UsedFallback { get { return _usedFallback; } }
+        public string ResolvedModelName { get { return _resolvedModelName; } }
+        public IVehicleHandle Vehicle { get { return _vehicle; } }
+        public string ErrorMessage { get { return _errorMessage; } }
 
         public StreamSpawnResult(
             bool success,
@@ -21,11 +28,11 @@ namespace GtaAnything.Runtime.Streaming
             IVehicleHandle vehicle,
             string errorMessage = null)
         {
-            Success = success;
-            UsedFallback = usedFallback;
-            ResolvedModelName = resolvedModelName;
-            Vehicle = vehicle;
-            ErrorMessage = errorMessage;
+            _success = success;
+            _usedFallback = usedFallback;
+            _resolvedModelName = resolvedModelName;
+            _vehicle = vehicle;
+            _errorMessage = errorMessage;
         }
     }
 
@@ -40,12 +47,17 @@ namespace GtaAnything.Runtime.Streaming
     public sealed class SafeModelStreamer
     {
         private const int DefaultPollStepMs = 50;
+        private readonly IGtaWorldHost _host;
 
-        public IGtaWorldHost Host { get; }
+        public IGtaWorldHost Host { get { return _host; } }
 
         public SafeModelStreamer(IGtaWorldHost host)
         {
-            Host = host ?? throw new ArgumentNullException(nameof(host));
+            if (host == null)
+            {
+                throw new ArgumentNullException("host");
+            }
+            _host = host;
         }
 
         /// <summary>
@@ -65,8 +77,8 @@ namespace GtaAnything.Runtime.Streaming
             string normalized = modelName.Trim();
             int effectiveTimeout = Math.Max(0, timeoutMs);
 
-            Host.RequestModel(normalized);
-            if (Host.HasModelLoaded(normalized))
+            _host.RequestModel(normalized);
+            if (_host.HasModelLoaded(normalized))
             {
                 return true;
             }
@@ -84,14 +96,14 @@ namespace GtaAnything.Runtime.Streaming
                 }
                 elapsed += step;
 
-                if (Host.HasModelLoaded(normalized))
+                if (_host.HasModelLoaded(normalized))
                 {
                     return true;
                 }
             }
 
             // Hard Invariant #5: Always release timed-out model requests to avoid dangling streaming handles.
-            Host.ReleaseModelRequest(normalized);
+            _host.ReleaseModelRequest(normalized);
             return false;
         }
 
@@ -106,13 +118,14 @@ namespace GtaAnything.Runtime.Streaming
             float y,
             float z,
             float heading = 0f,
-            int timeoutMs = 5000)
+            int timeoutMs = 5000,
+            Func<int, bool> pollWait = null)
         {
             if (string.IsNullOrWhiteSpace(vanillaFallbackModel))
             {
                 throw new ArgumentException(
                     "Hard Invariant Violation: vanillaFallbackModel must never be null or empty.",
-                    nameof(vanillaFallbackModel));
+                    "vanillaFallbackModel");
             }
 
             string fallback = vanillaFallbackModel.Trim();
@@ -122,7 +135,7 @@ namespace GtaAnything.Runtime.Streaming
             if (!string.IsNullOrWhiteSpace(preferredAddonModel))
             {
                 string preferred = preferredAddonModel.Trim();
-                if (RequestModelWithTimeout(preferred, timeoutMs))
+                if (RequestModelWithTimeout(preferred, timeoutMs, pollWait))
                 {
                     resolvedModel = preferred;
                 }
@@ -136,20 +149,24 @@ namespace GtaAnything.Runtime.Streaming
             // If we fell back or had no preferred addon, ensure the vanilla fallback model is streamed.
             if (string.Equals(resolvedModel, fallback, StringComparison.OrdinalIgnoreCase))
             {
-                if (!RequestModelWithTimeout(fallback, timeoutMs))
+                if (!RequestModelWithTimeout(fallback, timeoutMs, pollWait))
                 {
                     return new StreamSpawnResult(
                         success: false,
                         usedFallback: usedFallback,
                         resolvedModelName: fallback,
                         vehicle: null,
-                        errorMessage: $"Both preferred model '{preferredAddonModel}' and vanilla fallback '{fallback}' failed Gate 3 streaming.");
+                        errorMessage: string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Both preferred model '{0}' and vanilla fallback '{1}' failed Gate 3 streaming.",
+                            preferredAddonModel,
+                            fallback));
                 }
             }
 
             // Gate 4: Spawn vehicle and strictly verify non-null handle before touching any vehicle properties.
-            IVehicleHandle vehicle = Host.SpawnVehicle(resolvedModel, x, y, z, heading);
-            Host.ReleaseModelRequest(resolvedModel);
+            IVehicleHandle vehicle = _host.SpawnVehicle(resolvedModel, x, y, z, heading);
+            _host.ReleaseModelRequest(resolvedModel);
 
             if (vehicle == null || !vehicle.Exists())
             {
@@ -158,7 +175,10 @@ namespace GtaAnything.Runtime.Streaming
                     usedFallback: usedFallback,
                     resolvedModelName: resolvedModel,
                     vehicle: null,
-                    errorMessage: $"Gate 4 Failure: SpawnVehicle returned null or non-existent handle for '{resolvedModel}'.");
+                    errorMessage: string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Gate 4 Failure: SpawnVehicle returned null or non-existent handle for '{0}'.",
+                        resolvedModel));
             }
 
             return new StreamSpawnResult(

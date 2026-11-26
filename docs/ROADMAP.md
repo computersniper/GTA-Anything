@@ -30,17 +30,17 @@ flowchart LR
 - [x] 编写 `HARNESS.md`、`skills/gta-anything/SKILL.md` 及两套 100% 洁净室原创标杆示例（`metro_shuttle_loop` 城市公交环线运营 + `harbor_courier_dispatch` 港区调度执勤）
 - [x] 完成完整离线单元测试与 CLI 端到端集成测试套件 (`pytest` 25/25 100% 通过)
 
-### M1：GTA V 双加载链扩展、无头仿真器与雷达蓝图可视化（已完成 `v0.2.0` 离线闭环；实机 `.NET SDK` 编译校验待后续接入）
+### M1：GTA V 双加载链扩展、无头仿真器与雷达蓝图可视化（已完成 `v0.2.0` 离线闭环 + `v0.3.0` 实机 `.dll` 编译链路）
 - [x] 扩充 `GtaAnything.Runtime` 与转译器的 **RAGE Plugin Hook (RPH)** 后端适配器（`HostBridges.cs`、`USE_RPH`、`RphPluginBridge.cs`），使同一份 `Gameplay IR` 可一键切换输出 `SHVDN` 脚本或 `RPH` 插件，并提供第 3 套洁净室标杆示例 `examples/vinewood_patrol_rph/`
 - [x] 内置丰富的 GTA 世界模型语义字典与 `gta-anything catalog` 命令（全量原版载具分类、常用 NPC 职业模型、标准道路节点类型与 Blip 预设库）
 - [x] 提供一键生成模组 2D 静态菜单预览卡（`card_renderer.py` 输出 `cards/*_card.svg`），彻底替代实时 3D 预览车
 - [x] 实现离线 7 层无头世界模型仿真器 `gta-anything simulate`（`simulator/world_sim.py`），支持 `--inject-addon-timeout` 与 `--inject-abort-at-stop` 故障注入并输出兼容 `diagnose` 的 L1–L7 `.jsonl` 遥测
 - [x] 实现零外部依赖的洛圣都街头雷达蓝图可视化器 `gta-anything visualize`（`visualizer/radar_html.py`），输出自包含交互式 SVG 路线图与状态机拓扑 HTML
-- [ ] 接入本地 `.NET SDK` 自动编译生成的 `.csproj` 产物的闭环校验器（含方法级 IL/JIT 静态引用检查）
+- [x] 接入本地 `.NET` / `csc.exe` 自动编译生成的 `.csproj` / `.cs` 产物的闭环校验器（`gta-anything build-dll` & `pipeline --compile`，支持离线洁净室 `.dll` 编译与 `--game-dir` 实机 `ScriptHookVDotNet3.dll` 链接及 PE `MZ` 头校验）
 
-### M2：深度源码/二进制提取（REA 联动）与资产转换自动化
-- [ ] 集成 Tree-sitter AST 解析器与可选 MCP 逆向桥接接口（兼容 `REA` 工作流），支持直接从 Unity/Godot/Python/JS 开源小游戏仓库自动提取完整状态机与数值表至 `Gameplay IR`
-- [ ] 对接外部资产命令行工具链（如 CodeWalker / Sollumz 批处理接口），实现 Gen8 → Gen9 纹理（含 `script_rt_*` `B8G8R8A8_UNORM` 单 mip 重编码）自动修复建议与批处理脚手架
+### M2：深度源码/二进制提取（REA 联动）与资产转换自动化（已完成 `v0.3.0`）
+- [x] 集成多语言 AST 解析器（`extractor/polyglot_ast.py`，Python `ast.parse` + JS/TS/C#/Lua/GDScript 结构化扫描 + 2D→洛圣都路网坐标自动投影），支持直接从开源/外部小游戏仓库（如 `examples/external_pizza_rush_src/`）自动提取完整状态机、载具/NPC 映射与数值表至 `Gameplay IR`
+- [x] 实现纯标准库 Gen8 → Gen9 纹理（含 `script_rt_*` `DXT1`/`DXT3`/`DXT5` 多 mip 重编码为单 mip `B8G8R8A8_UNORM`）与 `dlclist.xml` 自动修复引擎 `gta-anything asset-fix`（`assets/fixer.py`，支持 `--dry-run` 与 `audit_assets` 闭环通过）
 - [x] 建立可视化 Gameplay IR 状态图与路线拓扑预览器（已提前于 `v0.2.0` 交付 `gta-anything visualize` 离线 HTML 雷达蓝图）
 
 ### M3：跨载体世界模型生态与社区 Hub (`GTA-Anything Hub`)

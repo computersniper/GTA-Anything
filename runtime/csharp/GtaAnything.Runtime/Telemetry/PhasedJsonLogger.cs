@@ -15,20 +15,22 @@ namespace GtaAnything.Runtime.Telemetry
     {
         private readonly object _writeLock = new object();
         private readonly List<string> _inMemoryEntries = new List<string>();
+        private readonly string _modId;
+        private readonly string _logFilePath;
         private bool _disposed;
 
-        public string ModId { get; }
-        public string LogFilePath { get; }
-        public IReadOnlyList<string> Entries => _inMemoryEntries;
+        public string ModId { get { return _modId; } }
+        public string LogFilePath { get { return _logFilePath; } }
+        public IReadOnlyList<string> Entries { get { return _inMemoryEntries; } }
 
         public PhasedJsonLogger(string modId, string logFilePath = null)
         {
-            ModId = string.IsNullOrWhiteSpace(modId) ? "unknown_mod" : modId.Trim();
-            LogFilePath = string.IsNullOrWhiteSpace(logFilePath) ? null : logFilePath.Trim();
+            _modId = string.IsNullOrWhiteSpace(modId) ? "unknown_mod" : modId.Trim();
+            _logFilePath = string.IsNullOrWhiteSpace(logFilePath) ? null : logFilePath.Trim();
 
-            if (!string.IsNullOrEmpty(LogFilePath))
+            if (!string.IsNullOrEmpty(_logFilePath))
             {
-                string dir = Path.GetDirectoryName(LogFilePath);
+                string dir = Path.GetDirectoryName(_logFilePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 {
                     Directory.CreateDirectory(dir);
@@ -52,7 +54,7 @@ namespace GtaAnything.Runtime.Telemetry
             StringBuilder sb = new StringBuilder(256);
             sb.Append('{');
             AppendJsonField(sb, "timestampUtc", timestampUtc, prependComma: false);
-            AppendJsonField(sb, "modId", ModId, prependComma: true);
+            AppendJsonField(sb, "modId", _modId, prependComma: true);
             AppendJsonField(sb, "layer", normalizedLayer, prependComma: true);
             AppendJsonField(sb, "phase", phase ?? "unknown", prependComma: true);
             AppendJsonField(sb, "event", eventName ?? "unspecified", prependComma: true);
@@ -71,9 +73,9 @@ namespace GtaAnything.Runtime.Telemetry
             lock (_writeLock)
             {
                 _inMemoryEntries.Add(line);
-                if (!string.IsNullOrEmpty(LogFilePath) && !_disposed)
+                if (!string.IsNullOrEmpty(_logFilePath) && !_disposed)
                 {
-                    File.AppendAllText(LogFilePath, line + Environment.NewLine, Encoding.UTF8);
+                    File.AppendAllText(_logFilePath, line + Environment.NewLine, Encoding.UTF8);
                 }
             }
         }
@@ -84,7 +86,7 @@ namespace GtaAnything.Runtime.Telemetry
         public void LogLayerReached(int layerNumber, string phase, string eventName, string details = "")
         {
             int clamped = Math.Max(1, Math.Min(7, layerNumber));
-            LogEvent($"L{clamped}", phase, eventName, details, error: null);
+            LogEvent("L" + clamped.ToString(CultureInfo.InvariantCulture), phase, eventName, details, error: null);
         }
 
         /// <summary>
@@ -92,8 +94,11 @@ namespace GtaAnything.Runtime.Telemetry
         /// </summary>
         public void LogException(string layer, string phase, Exception ex)
         {
-            string err = ex == null ? "UnknownException" : $"{ex.GetType().Name}: {ex.Message}";
-            LogEvent(layer, phase, "UnhandledException", details: ex?.StackTrace ?? string.Empty, error: err);
+            string err = ex == null
+                ? "UnknownException"
+                : string.Format(CultureInfo.InvariantCulture, "{0}: {1}", ex.GetType().Name, ex.Message);
+            string stack = ex != null && ex.StackTrace != null ? ex.StackTrace : string.Empty;
+            LogEvent(layer, phase, "UnhandledException", details: stack, error: err);
         }
 
         public void Dispose()

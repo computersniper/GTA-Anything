@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace GtaAnything.Runtime.Lifecycle
 {
@@ -31,16 +32,24 @@ namespace GtaAnything.Runtime.Lifecycle
             new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
 
         private readonly Action _onTeardownCallback;
+        private readonly string _initialState;
+        private readonly string _cleanupState;
 
-        public string InitialState { get; }
-        public string CleanupState { get; }
+        public string InitialState { get { return _initialState; } }
+        public string CleanupState { get { return _cleanupState; } }
         public string CurrentState { get; private set; }
         public string LastTrigger { get; private set; }
 
-        public OperationalPhase CurrentPhase =>
-            _statePhases.TryGetValue(CurrentState, out OperationalPhase phase)
-                ? phase
-                : OperationalPhase.Idle;
+        public OperationalPhase CurrentPhase
+        {
+            get
+            {
+                OperationalPhase phase;
+                return _statePhases.TryGetValue(CurrentState, out phase)
+                    ? phase
+                    : OperationalPhase.Idle;
+            }
+        }
 
         public event Action<string, string, string> OnStateTransitioned;
 
@@ -49,13 +58,13 @@ namespace GtaAnything.Runtime.Lifecycle
             string cleanupState = "Teardown",
             Action onTeardownCallback = null)
         {
-            InitialState = string.IsNullOrWhiteSpace(initialState) ? "Idle" : initialState.Trim();
-            CleanupState = string.IsNullOrWhiteSpace(cleanupState) ? "Teardown" : cleanupState.Trim();
-            CurrentState = InitialState;
+            _initialState = string.IsNullOrWhiteSpace(initialState) ? "Idle" : initialState.Trim();
+            _cleanupState = string.IsNullOrWhiteSpace(cleanupState) ? "Teardown" : cleanupState.Trim();
+            CurrentState = _initialState;
             _onTeardownCallback = onTeardownCallback;
 
             // Pre-register canonical states
-            RegisterState(InitialState, OperationalPhase.Idle);
+            RegisterState(_initialState, OperationalPhase.Idle);
             RegisterState("MenuSelecting", OperationalPhase.MenuSelecting);
             RegisterState("ResourceStreaming", OperationalPhase.ResourceStreaming);
             RegisterState("SpawningShift", OperationalPhase.SpawningShift);
@@ -63,14 +72,14 @@ namespace GtaAnything.Runtime.Lifecycle
             RegisterState("ActiveOperation", OperationalPhase.ActiveOperation);
             RegisterState("ShiftSummary", OperationalPhase.Completing);
             RegisterState("Completing", OperationalPhase.Completing);
-            RegisterState(CleanupState, OperationalPhase.Teardown);
+            RegisterState(_cleanupState, OperationalPhase.Teardown);
         }
 
         public void RegisterState(string stateName, OperationalPhase phase)
         {
             if (string.IsNullOrWhiteSpace(stateName))
             {
-                throw new ArgumentException("State name cannot be empty.", nameof(stateName));
+                throw new ArgumentException("State name cannot be empty.", "stateName");
             }
             _statePhases[stateName.Trim()] = phase;
         }
@@ -88,7 +97,8 @@ namespace GtaAnything.Runtime.Lifecycle
             string toKey = toState.Trim();
             string triggerKey = trigger.Trim();
 
-            if (!_transitions.TryGetValue(fromKey, out Dictionary<string, string> edges))
+            Dictionary<string, string> edges;
+            if (!_transitions.TryGetValue(fromKey, out edges))
             {
                 edges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 _transitions[fromKey] = edges;
@@ -109,8 +119,10 @@ namespace GtaAnything.Runtime.Lifecycle
                 return false;
             }
 
-            if (!_transitions.TryGetValue(CurrentState, out Dictionary<string, string> edges) ||
-                !edges.TryGetValue(trigger.Trim(), out string target))
+            Dictionary<string, string> edges;
+            string target;
+            if (!_transitions.TryGetValue(CurrentState, out edges) ||
+                !edges.TryGetValue(trigger.Trim(), out target))
             {
                 return false;
             }
@@ -120,12 +132,19 @@ namespace GtaAnything.Runtime.Lifecycle
             LastTrigger = trigger.Trim();
             nextState = CurrentState;
 
-            if (string.Equals(CurrentState, CleanupState, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(CurrentState, _cleanupState, StringComparison.OrdinalIgnoreCase))
             {
-                _onTeardownCallback?.Invoke();
+                if (_onTeardownCallback != null)
+                {
+                    _onTeardownCallback();
+                }
             }
 
-            OnStateTransitioned?.Invoke(previous, CurrentState, LastTrigger);
+            Action<string, string, string> handler = OnStateTransitioned;
+            if (handler != null)
+            {
+                handler(previous, CurrentState, LastTrigger);
+            }
             return true;
         }
 
@@ -134,9 +153,10 @@ namespace GtaAnything.Runtime.Lifecycle
         /// </summary>
         public void FireOrTeardown(string trigger)
         {
-            if (!TryFire(trigger, out _))
+            string ignored;
+            if (!TryFire(trigger, out ignored))
             {
-                ForceTeardown($"InvalidTrigger:{trigger}");
+                ForceTeardown(string.Format(CultureInfo.InvariantCulture, "InvalidTrigger:{0}", trigger));
             }
         }
 
@@ -157,8 +177,11 @@ namespace GtaAnything.Runtime.Lifecycle
             }
             catch (Exception ex)
             {
-                onError?.Invoke(ex);
-                ForceTeardown($"UnhandledException:{ex.GetType().Name}");
+                if (onError != null)
+                {
+                    onError(ex);
+                }
+                ForceTeardown(string.Format(CultureInfo.InvariantCulture, "UnhandledException:{0}", ex.GetType().Name));
             }
         }
 
@@ -168,10 +191,17 @@ namespace GtaAnything.Runtime.Lifecycle
         public void ForceTeardown(string reason = "Forced")
         {
             string previous = CurrentState;
-            CurrentState = CleanupState;
+            CurrentState = _cleanupState;
             LastTrigger = reason ?? "Forced";
-            _onTeardownCallback?.Invoke();
-            OnStateTransitioned?.Invoke(previous, CurrentState, LastTrigger);
+            if (_onTeardownCallback != null)
+            {
+                _onTeardownCallback();
+            }
+            Action<string, string, string> handler = OnStateTransitioned;
+            if (handler != null)
+            {
+                handler(previous, CurrentState, LastTrigger);
+            }
         }
     }
 }

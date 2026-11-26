@@ -15,9 +15,10 @@ namespace GtaAnything.Runtime.Lifecycle
         private readonly object _syncRoot = new object();
         private readonly List<IWorldEntityHandle> _leasedEntities = new List<IWorldEntityHandle>();
         private readonly HashSet<int> _leasedIds = new HashSet<int>();
+        private readonly IGtaWorldHost _host;
         private bool _disposed;
 
-        public IGtaWorldHost Host { get; }
+        public IGtaWorldHost Host { get { return _host; } }
 
         public int ActiveLeaseCount
         {
@@ -32,7 +33,7 @@ namespace GtaAnything.Runtime.Lifecycle
 
         public WorldSession(IGtaWorldHost host = null)
         {
-            Host = host;
+            _host = host;
         }
 
         public IVehicleHandle LeaseVehicle(IVehicleHandle vehicle)

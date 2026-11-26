@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace GtaAnything.Runtime.Compatibility
 {
@@ -30,26 +31,40 @@ namespace GtaAnything.Runtime.Compatibility
     /// </summary>
     public sealed class GameBuildInfo
     {
-        public GameEdition Edition { get; }
-        public string DiskExecutableVersion { get; }
-        public string ScriptHookBuildAlias { get; }
-        public string ExecutableName { get; }
+        private readonly GameEdition _edition;
+        private readonly string _diskExecutableVersion;
+        private readonly string _scriptHookBuildAlias;
+        private readonly string _executableName;
+
+        public GameEdition Edition { get { return _edition; } }
+        public string DiskExecutableVersion { get { return _diskExecutableVersion; } }
+        public string ScriptHookBuildAlias { get { return _scriptHookBuildAlias; } }
+        public string ExecutableName { get { return _executableName; } }
 
         /// <summary>
         /// True on GTA V Enhanced (Gen9), where script_rt_* dial/dashboard textures must use
         /// single-mip uncompressed B8G8R8A8_UNORM instead of legacy DXT1 to prevent crashes.
         /// </summary>
-        public bool RequiresUncompressedScriptRenderTargets => Edition == GameEdition.EnhancedGen9;
+        public bool RequiresUncompressedScriptRenderTargets
+        {
+            get { return _edition == GameEdition.EnhancedGen9; }
+        }
 
         /// <summary>
         /// Expected RSC vehicle fragment (.yft) version (171 for Gen9 Enhanced, 162 for Gen8 Legacy).
         /// </summary>
-        public int ExpectedYftVersion => Edition == GameEdition.EnhancedGen9 ? 171 : 162;
+        public int ExpectedYftVersion
+        {
+            get { return _edition == GameEdition.EnhancedGen9 ? 171 : 162; }
+        }
 
         /// <summary>
         /// Expected RSC texture dictionary (.ytd) version (5 for Gen9 Enhanced, 13 for Gen8 Legacy).
         /// </summary>
-        public int ExpectedYtdVersion => Edition == GameEdition.EnhancedGen9 ? 5 : 13;
+        public int ExpectedYtdVersion
+        {
+            get { return _edition == GameEdition.EnhancedGen9 ? 5 : 13; }
+        }
 
         public GameBuildInfo(
             GameEdition edition,
@@ -57,23 +72,30 @@ namespace GtaAnything.Runtime.Compatibility
             string scriptHookBuildAlias,
             string executableName = null)
         {
-            Edition = edition;
-            DiskExecutableVersion = string.IsNullOrWhiteSpace(diskExecutableVersion)
+            _edition = edition;
+            _diskExecutableVersion = string.IsNullOrWhiteSpace(diskExecutableVersion)
                 ? "0.0.0.0"
                 : diskExecutableVersion.Trim();
-            ScriptHookBuildAlias = string.IsNullOrWhiteSpace(scriptHookBuildAlias)
+            _scriptHookBuildAlias = string.IsNullOrWhiteSpace(scriptHookBuildAlias)
                 ? "UNKNOWN_SHV_BUILD"
                 : scriptHookBuildAlias.Trim();
-            ExecutableName = !string.IsNullOrWhiteSpace(executableName)
+            _executableName = !string.IsNullOrWhiteSpace(executableName)
                 ? executableName.Trim()
                 : (edition == GameEdition.EnhancedGen9 ? "GTA5_Enhanced.exe" : "GTA5.exe");
         }
 
         public override string ToString()
         {
-            return $"{Edition} [Exe={ExecutableName}@{DiskExecutableVersion}, SHV={ScriptHookBuildAlias}, " +
-                   $"YFT=v{ExpectedYftVersion}, YTD=v{ExpectedYtdVersion}, " +
-                   $"UncompressedScriptRT={RequiresUncompressedScriptRenderTargets}]";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} [Exe={1}@{2}, SHV={3}, YFT=v{4}, YTD=v{5}, UncompressedScriptRT={6}]",
+                Edition,
+                ExecutableName,
+                DiskExecutableVersion,
+                ScriptHookBuildAlias,
+                ExpectedYftVersion,
+                ExpectedYtdVersion,
+                RequiresUncompressedScriptRenderTargets);
         }
     }
 
@@ -106,7 +128,9 @@ namespace GtaAnything.Runtime.Compatibility
             string shvBuildAlias = null,
             GameEdition? overrideEdition = null)
         {
-            GameEdition edition = overrideEdition ?? InferEdition(diskExeVersion, shvBuildAlias);
+            GameEdition edition = overrideEdition.HasValue
+                ? overrideEdition.Value
+                : InferEdition(diskExeVersion, shvBuildAlias);
             if (edition == GameEdition.Unknown)
             {
                 edition = GetCompileTimeEdition();

@@ -14,11 +14,11 @@ namespace GtaAnything.Runtime.Compatibility
             get
             {
 #if RPH_REFERENCED
-                return nameof(RphWorldHostBridge);
+                return "RphWorldHostBridge";
 #elif SHVDN_REFERENCED
-                return nameof(ShvdnWorldHostBridge);
+                return "ShvdnWorldHostBridge";
 #else
-                return nameof(SimulatedGtaWorldHost);
+                return "SimulatedGtaWorldHost";
 #endif
             }
         }
@@ -50,7 +50,15 @@ namespace GtaAnything.Runtime.Compatibility
     /// </summary>
     public sealed class ShvdnWorldHostBridge : IGtaWorldHost
     {
-        public bool IsStoryModeOrOnDuty => !GTA.Game.IsLoading && GTA.Game.Player?.Character != null;
+        public bool IsStoryModeOrOnDuty
+        {
+            get
+            {
+                return GTA.Game.Player != null &&
+                       GTA.Game.Player.Character != null &&
+                       GTA.Game.Player.Character.Exists();
+            }
+        }
 
         public bool RequestModel(string modelName)
         {
@@ -58,7 +66,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            var model = new GTA.Model(modelName.Trim());
+            GTA.Model model = new GTA.Model(modelName.Trim());
             if (!model.IsValid)
             {
                 return false;
@@ -73,7 +81,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            var model = new GTA.Model(modelName.Trim());
+            GTA.Model model = new GTA.Model(modelName.Trim());
             return model.IsValid && model.IsLoaded;
         }
 
@@ -83,7 +91,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return;
             }
-            var model = new GTA.Model(modelName.Trim());
+            GTA.Model model = new GTA.Model(modelName.Trim());
             if (model.IsValid)
             {
                 model.MarkAsNoLongerNeeded();
@@ -92,29 +100,29 @@ namespace GtaAnything.Runtime.Compatibility
 
         public IVehicleHandle SpawnVehicle(string modelName, float x, float y, float z, float heading = 0f)
         {
-            var model = new GTA.Model(modelName);
+            GTA.Model model = new GTA.Model(modelName);
             if (!model.IsValid || !model.IsLoaded)
             {
                 return null;
             }
-            var vehicle = GTA.World.CreateVehicle(model, new GTA.Math.Vector3(x, y, z), heading);
+            GTA.Vehicle vehicle = GTA.World.CreateVehicle(model, new GTA.Math.Vector3(x, y, z), heading);
             return vehicle == null ? null : new ShvdnVehicleHandle(vehicle, modelName);
         }
 
         public IPedHandle SpawnPed(string modelName, float x, float y, float z, float heading = 0f)
         {
-            var model = new GTA.Model(modelName);
+            GTA.Model model = new GTA.Model(modelName);
             if (!model.IsValid || !model.IsLoaded)
             {
                 return null;
             }
-            var ped = GTA.World.CreatePed(model, new GTA.Math.Vector3(x, y, z), heading);
+            GTA.Ped ped = GTA.World.CreatePed(model, new GTA.Math.Vector3(x, y, z), heading);
             return ped == null ? null : new ShvdnPedHandle(ped, modelName);
         }
 
         public IBlipHandle CreateBlip(float x, float y, float z, int sprite = 1, int color = 3, string label = "")
         {
-            var blip = GTA.World.CreateBlip(new GTA.Math.Vector3(x, y, z));
+            GTA.Blip blip = GTA.World.CreateBlip(new GTA.Math.Vector3(x, y, z));
             if (blip == null)
             {
                 return null;
@@ -132,51 +140,148 @@ namespace GtaAnything.Runtime.Compatibility
         {
             if (!string.IsNullOrWhiteSpace(message))
             {
-                GTA.UI.Notification.Show(message);
+                GTA.UI.Notification.PostTicker(message, true, true);
             }
+        }
+
+        public void ShowSubtitle(string message, int durationMs = 2500)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                GTA.UI.Screen.ShowSubtitle(message, durationMs);
+            }
+        }
+
+        public bool SeatPlayerInVehicle(IVehicleHandle vehicle, int seatIndex = -1)
+        {
+            ShvdnVehicleHandle veh = vehicle as ShvdnVehicleHandle;
+            if (veh == null || !veh.Exists())
+            {
+                return false;
+            }
+            if (GTA.Game.Player == null || GTA.Game.Player.Character == null)
+            {
+                return false;
+            }
+            GTA.Game.Player.Character.SetIntoVehicle(veh.Inner, (GTA.VehicleSeat)seatIndex);
+            return true;
+        }
+
+        public float GetPlayerDistanceTo(float x, float y, float z)
+        {
+            if (GTA.Game.Player == null || GTA.Game.Player.Character == null)
+            {
+                return float.MaxValue;
+            }
+            return GTA.Game.Player.Character.Position.DistanceTo(new GTA.Math.Vector3(x, y, z));
+        }
+
+        public float GetPlayerSpeed()
+        {
+            if (GTA.Game.Player == null || GTA.Game.Player.Character == null)
+            {
+                return 0f;
+            }
+            GTA.Ped playerPed = GTA.Game.Player.Character;
+            if (playerPed.CurrentVehicle != null && playerPed.CurrentVehicle.Exists())
+            {
+                return playerPed.CurrentVehicle.Speed;
+            }
+            return playerPed.Speed;
+        }
+
+        public void DrawCheckpointMarker(float x, float y, float z, float radius = 4.0f)
+        {
+            GTA.World.DrawMarker(
+                GTA.MarkerType.Cylinder,
+                new GTA.Math.Vector3(x, y, z - 1.0f),
+                GTA.Math.Vector3.Zero,
+                GTA.Math.Vector3.Zero,
+                new GTA.Math.Vector3(radius, radius, 1.5f),
+                System.Drawing.Color.FromArgb(140, 0, 200, 255),
+                false,
+                false,
+                false,
+                null,
+                null,
+                false);
         }
 
         private sealed class ShvdnVehicleHandle : IVehicleHandle
         {
-            internal GTA.Vehicle Inner { get; }
-            public int HandleId => Inner.Handle;
-            public string ModelName { get; }
+            private readonly GTA.Vehicle _inner;
+            private readonly string _modelName;
+
+            internal GTA.Vehicle Inner { get { return _inner; } }
+            public int HandleId { get { return _inner.Handle; } }
+            public string ModelName { get { return _modelName; } }
 
             public ShvdnVehicleHandle(GTA.Vehicle vehicle, string modelName)
             {
-                Inner = vehicle;
-                ModelName = modelName ?? "vehicle";
+                _inner = vehicle;
+                _modelName = modelName ?? "vehicle";
             }
 
-            public bool Exists() => Inner != null && Inner.Exists();
-            public void Delete() { if (Exists()) Inner.Delete(); }
-            public void MarkAsNoLongerNeeded() { if (Exists()) Inner.MarkAsNoLongerNeeded(); }
-            public void Repair() { if (Exists()) Inner.Repair(); }
-            public void SetDoorsShut(bool instant = false) { if (Exists()) Inner.Doors.CloseAll(instant); }
-            public bool IsSeatFree(int seatIndex) => Exists() && Inner.IsSeatFree((GTA.VehicleSeat)seatIndex);
+            public bool Exists() { return _inner != null && _inner.Exists(); }
+            public void Delete() { if (Exists()) { _inner.Delete(); } }
+            public void MarkAsNoLongerNeeded() { if (Exists()) { _inner.MarkAsNoLongerNeeded(); } }
+            public void Repair() { if (Exists()) { _inner.Repair(); } }
+
+            public void SetDoorsShut(bool instant = false)
+            {
+                if (!Exists() || _inner.Doors == null)
+                {
+                    return;
+                }
+                GTA.VehicleDoor[] doors = _inner.Doors.ToArray();
+                if (doors == null)
+                {
+                    return;
+                }
+                for (int i = 0; i < doors.Length; i++)
+                {
+                    if (doors[i] != null)
+                    {
+                        doors[i].Close(instant);
+                    }
+                }
+            }
+
+            public bool IsSeatFree(int seatIndex)
+            {
+                return Exists() && _inner.IsSeatFree((GTA.VehicleSeat)seatIndex);
+            }
         }
 
         private sealed class ShvdnPedHandle : IPedHandle
         {
             private readonly GTA.Ped _inner;
-            public int HandleId => _inner.Handle;
-            public string ModelName { get; }
+            private readonly string _modelName;
+
+            public int HandleId { get { return _inner.Handle; } }
+            public string ModelName { get { return _modelName; } }
 
             public ShvdnPedHandle(GTA.Ped ped, string modelName)
             {
                 _inner = ped;
-                ModelName = modelName ?? "ped";
+                _modelName = modelName ?? "ped";
             }
 
-            public bool Exists() => _inner != null && _inner.Exists();
-            public void Delete() { if (Exists()) _inner.Delete(); }
-            public void MarkAsNoLongerNeeded() { if (Exists()) _inner.MarkAsNoLongerNeeded(); }
+            public bool Exists() { return _inner != null && _inner.Exists(); }
+            public void Delete() { if (Exists()) { _inner.Delete(); } }
+            public void MarkAsNoLongerNeeded() { if (Exists()) { _inner.MarkAsNoLongerNeeded(); } }
 
             public void TaskEnterVehicle(IVehicleHandle vehicle, int seatIndex, int timeoutMs = 5000)
             {
-                if (Exists() && vehicle is ShvdnVehicleHandle veh && veh.Exists())
+                ShvdnVehicleHandle veh = vehicle as ShvdnVehicleHandle;
+                if (Exists() && veh != null && veh.Exists())
                 {
-                    _inner.Task.EnterVehicle(veh.Inner, (GTA.VehicleSeat)seatIndex, timeoutMs);
+                    _inner.Task.EnterVehicle(
+                        veh.Inner,
+                        (GTA.VehicleSeat)seatIndex,
+                        timeoutMs,
+                        1.0f,
+                        (GTA.EnterVehicleFlags)0);
                 }
             }
 
@@ -192,20 +297,22 @@ namespace GtaAnything.Runtime.Compatibility
         private sealed class ShvdnBlipHandle : IBlipHandle
         {
             private readonly GTA.Blip _inner;
-            public int HandleId => _inner.Handle;
-            public string ModelName { get; }
+            private readonly string _modelName;
+
+            public int HandleId { get { return _inner.Handle; } }
+            public string ModelName { get { return _modelName; } }
 
             public ShvdnBlipHandle(GTA.Blip blip, string label)
             {
                 _inner = blip;
-                ModelName = label ?? "blip";
+                _modelName = label ?? "blip";
             }
 
-            public bool Exists() => _inner != null && _inner.Exists();
-            public void Delete() { if (Exists()) _inner.Delete(); }
+            public bool Exists() { return _inner != null && _inner.Exists(); }
+            public void Delete() { if (Exists()) { _inner.Delete(); } }
             public void MarkAsNoLongerNeeded() { Delete(); }
-            public void SetRoute(bool enabled) { if (Exists()) _inner.ShowRoute = enabled; }
-            public void SetColor(int colorCode) { if (Exists()) _inner.Color = (GTA.BlipColor)colorCode; }
+            public void SetRoute(bool enabled) { if (Exists()) { _inner.ShowRoute = enabled; } }
+            public void SetColor(int colorCode) { if (Exists()) { _inner.Color = (GTA.BlipColor)colorCode; } }
         }
     }
 #endif
@@ -217,7 +324,15 @@ namespace GtaAnything.Runtime.Compatibility
     /// </summary>
     public sealed class RphWorldHostBridge : IGtaWorldHost
     {
-        public bool IsStoryModeOrOnDuty => !Rage.Game.IsLoading && Rage.Game.LocalPlayer?.Character != null;
+        public bool IsStoryModeOrOnDuty
+        {
+            get
+            {
+                return !Rage.Game.IsLoading &&
+                       Rage.Game.LocalPlayer != null &&
+                       Rage.Game.LocalPlayer.Character != null;
+            }
+        }
 
         public bool RequestModel(string modelName)
         {
@@ -225,7 +340,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            var model = new Rage.Model(modelName.Trim());
+            Rage.Model model = new Rage.Model(modelName.Trim());
             if (!model.IsValid)
             {
                 return false;
@@ -240,7 +355,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return false;
             }
-            var model = new Rage.Model(modelName.Trim());
+            Rage.Model model = new Rage.Model(modelName.Trim());
             return model.IsValid && model.IsLoaded;
         }
 
@@ -250,7 +365,7 @@ namespace GtaAnything.Runtime.Compatibility
             {
                 return;
             }
-            var model = new Rage.Model(modelName.Trim());
+            Rage.Model model = new Rage.Model(modelName.Trim());
             if (model.IsValid && model.IsLoaded)
             {
                 model.Dismiss();
@@ -259,29 +374,29 @@ namespace GtaAnything.Runtime.Compatibility
 
         public IVehicleHandle SpawnVehicle(string modelName, float x, float y, float z, float heading = 0f)
         {
-            var model = new Rage.Model(modelName);
+            Rage.Model model = new Rage.Model(modelName);
             if (!model.IsValid || !model.IsLoaded)
             {
                 return null;
             }
-            var vehicle = new Rage.Vehicle(model, new Rage.Vector3(x, y, z), heading);
+            Rage.Vehicle vehicle = new Rage.Vehicle(model, new Rage.Vector3(x, y, z), heading);
             return vehicle.IsValid() ? new RphVehicleHandle(vehicle, modelName) : null;
         }
 
         public IPedHandle SpawnPed(string modelName, float x, float y, float z, float heading = 0f)
         {
-            var model = new Rage.Model(modelName);
+            Rage.Model model = new Rage.Model(modelName);
             if (!model.IsValid || !model.IsLoaded)
             {
                 return null;
             }
-            var ped = new Rage.Ped(model, new Rage.Vector3(x, y, z), heading);
+            Rage.Ped ped = new Rage.Ped(model, new Rage.Vector3(x, y, z), heading);
             return ped.IsValid() ? new RphPedHandle(ped, modelName) : null;
         }
 
         public IBlipHandle CreateBlip(float x, float y, float z, int sprite = 1, int color = 3, string label = "")
         {
-            var blip = new Rage.Blip(new Rage.Vector3(x, y, z));
+            Rage.Blip blip = new Rage.Blip(new Rage.Vector3(x, y, z));
             if (!blip.IsValid())
             {
                 return null;
@@ -302,45 +417,92 @@ namespace GtaAnything.Runtime.Compatibility
             }
         }
 
+        public void ShowSubtitle(string message, int durationMs = 2500)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                Rage.Game.DisplaySubtitle(message, durationMs);
+            }
+        }
+
+        public bool SeatPlayerInVehicle(IVehicleHandle vehicle, int seatIndex = -1)
+        {
+            RphVehicleHandle veh = vehicle as RphVehicleHandle;
+            if (veh == null || !veh.Exists() || Rage.Game.LocalPlayer == null || Rage.Game.LocalPlayer.Character == null)
+            {
+                return false;
+            }
+            Rage.Game.LocalPlayer.Character.WarpIntoVehicle(veh.Inner, seatIndex);
+            return true;
+        }
+
+        public float GetPlayerDistanceTo(float x, float y, float z)
+        {
+            if (Rage.Game.LocalPlayer == null || Rage.Game.LocalPlayer.Character == null)
+            {
+                return float.MaxValue;
+            }
+            return Rage.Game.LocalPlayer.Character.Position.DistanceTo(new Rage.Vector3(x, y, z));
+        }
+
+        public float GetPlayerSpeed()
+        {
+            if (Rage.Game.LocalPlayer == null || Rage.Game.LocalPlayer.Character == null)
+            {
+                return 0f;
+            }
+            return Rage.Game.LocalPlayer.Character.Speed;
+        }
+
+        public void DrawCheckpointMarker(float x, float y, float z, float radius = 4.0f)
+        {
+        }
+
         private sealed class RphVehicleHandle : IVehicleHandle
         {
-            internal Rage.Vehicle Inner { get; }
-            public int HandleId => (int)Inner.Handle.Value;
-            public string ModelName { get; }
+            private readonly Rage.Vehicle _inner;
+            private readonly string _modelName;
+
+            internal Rage.Vehicle Inner { get { return _inner; } }
+            public int HandleId { get { return (int)_inner.Handle.Value; } }
+            public string ModelName { get { return _modelName; } }
 
             public RphVehicleHandle(Rage.Vehicle vehicle, string modelName)
             {
-                Inner = vehicle;
-                ModelName = modelName ?? "vehicle";
+                _inner = vehicle;
+                _modelName = modelName ?? "vehicle";
             }
 
-            public bool Exists() => Inner != null && Inner.IsValid();
-            public void Delete() { if (Exists()) Inner.Delete(); }
-            public void MarkAsNoLongerNeeded() { if (Exists()) Inner.Dismiss(); }
-            public void Repair() { if (Exists()) Inner.Repair(); }
+            public bool Exists() { return _inner != null && _inner.IsValid(); }
+            public void Delete() { if (Exists()) { _inner.Delete(); } }
+            public void MarkAsNoLongerNeeded() { if (Exists()) { _inner.Dismiss(); } }
+            public void Repair() { if (Exists()) { _inner.Repair(); } }
             public void SetDoorsShut(bool instant = false) { }
-            public bool IsSeatFree(int seatIndex) => Exists() && Inner.IsSeatFree(seatIndex);
+            public bool IsSeatFree(int seatIndex) { return Exists() && _inner.IsSeatFree(seatIndex); }
         }
 
         private sealed class RphPedHandle : IPedHandle
         {
             private readonly Rage.Ped _inner;
-            public int HandleId => (int)_inner.Handle.Value;
-            public string ModelName { get; }
+            private readonly string _modelName;
+
+            public int HandleId { get { return (int)_inner.Handle.Value; } }
+            public string ModelName { get { return _modelName; } }
 
             public RphPedHandle(Rage.Ped ped, string modelName)
             {
                 _inner = ped;
-                ModelName = modelName ?? "ped";
+                _modelName = modelName ?? "ped";
             }
 
-            public bool Exists() => _inner != null && _inner.IsValid();
-            public void Delete() { if (Exists()) _inner.Delete(); }
-            public void MarkAsNoLongerNeeded() { if (Exists()) _inner.Dismiss(); }
+            public bool Exists() { return _inner != null && _inner.IsValid(); }
+            public void Delete() { if (Exists()) { _inner.Delete(); } }
+            public void MarkAsNoLongerNeeded() { if (Exists()) { _inner.Dismiss(); } }
 
             public void TaskEnterVehicle(IVehicleHandle vehicle, int seatIndex, int timeoutMs = 5000)
             {
-                if (Exists() && vehicle is RphVehicleHandle veh && veh.Exists())
+                RphVehicleHandle veh = vehicle as RphVehicleHandle;
+                if (Exists() && veh != null && veh.Exists())
                 {
                     _inner.Tasks.EnterVehicle(veh.Inner, timeoutMs, seatIndex);
                 }
@@ -358,19 +520,21 @@ namespace GtaAnything.Runtime.Compatibility
         private sealed class RphBlipHandle : IBlipHandle
         {
             private readonly Rage.Blip _inner;
-            public int HandleId => (int)_inner.Handle.Value;
-            public string ModelName { get; }
+            private readonly string _modelName;
+
+            public int HandleId { get { return (int)_inner.Handle.Value; } }
+            public string ModelName { get { return _modelName; } }
 
             public RphBlipHandle(Rage.Blip blip, string label)
             {
                 _inner = blip;
-                ModelName = label ?? "blip";
+                _modelName = label ?? "blip";
             }
 
-            public bool Exists() => _inner != null && _inner.IsValid();
-            public void Delete() { if (Exists()) _inner.Delete(); }
+            public bool Exists() { return _inner != null && _inner.IsValid(); }
+            public void Delete() { if (Exists()) { _inner.Delete(); } }
             public void MarkAsNoLongerNeeded() { Delete(); }
-            public void SetRoute(bool enabled) { if (Exists()) _inner.IsRouteEnabled = enabled; }
+            public void SetRoute(bool enabled) { if (Exists()) { _inner.IsRouteEnabled = enabled; } }
             public void SetColor(int colorCode) { }
         }
     }
