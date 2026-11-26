@@ -111,3 +111,28 @@ tests\test_transpiler_and_deploy.py::test_profile_manager_lock_and_dry_run PASSE
 | **Reversible Profile Isolation** | Stage, Dry-Run, Switch (`transit` <-> `patrol`), Lock contention, SHA-256 Rollback | Verified in isolated `tmp_path` sandbox | PASS |
 | **CLI Structured `--json` Pipeline** | `preflight`, `validate-ir`, `pipeline`, `asset-check`, `diagnose` | Exit code `0`, valid JSON schemas | PASS |
 | **Clean-Room Repository Hygiene** | Zero `.dll`/`.asi`/`.rpf`/`.yft`/`.ytd` binaries; zero personal paths | `0` binary violations, `0` personal path violations | PASS |
+
+
+---
+
+## Part 3: M1 (`v0.2.0`) Automated Verification & Execution Report
+
+### 3.1 M1 Scope & New Test Suite (`tests/test_m1_sim_viz_and_rph.py`)
+
+- **Package Version**: `gta-anything 0.2.0`
+- **New Flagship Example**: `examples/vinewood_patrol_rph/` (`loader_target: "rph"`, `LeftControl + F10`, `static_sprite`, `police3` / `fbi2` + `s_m_y_ranger_01`, 4 Vinewood Hills & Downtown patrol zones)
+- **New M1 Test Coverage (9 tests)**:
+  - `test_simulator_full_run_and_diagnose_l7`: Verifies `simulate_gameplay_ir()` across `metro_shuttle_loop`, `harbor_courier_dispatch`, and `vinewood_patrol_rph` reaching `highest_acceptance_layer_reached == 7`, `active_leases_after_teardown == 0`, `spawned_during_menu_scroll == 0`, and L7 correlation via `diagnose_logs()`.
+  - `test_simulator_fault_injection_addon_timeout`: Verifies `--inject-addon-timeout` releases timed-out model handles (`released_timed_out_models >= 1`) and falls back to `vanilla_fallback_model` (`used_vanilla_fallback == True`).
+  - `test_simulator_fault_injection_abort_at_stop`: Verifies `--inject-abort-at-stop 1` triggers guarded early transition to `Teardown` with `active_leases_after_teardown == 0`.
+  - `test_visualizer_renders_standalone_radar_html`: Verifies `render_ir_dashboard()` outputs self-contained offline HTML with SVG coordinates, FSM states, entity slots, and zero personal paths.
+  - `test_rph_transpilation_and_static_2d_svg_cards`: Verifies `generate_csharp_mod()` for `loader_target == "rph"` emits `USE_RPH` in `.csproj`, `RphPluginBridge.cs` (`OnUnload`), and valid XML `cards/*_card.svg` 2D preview cards.
+  - `test_world_catalog_expanded_and_filterable`: Verifies `list_world_catalog()` and category filtering.
+  - `test_cli_v020_json_subcommands_e2e`: Verifies `gta-anything --json` for `simulate`, `visualize`, `catalog`, and enhanced `pipeline` (`simulation_telemetry.jsonl` + `radar_blueprint.html`).
+
+### 3.2 Full M1 `pytest -v` Summary
+
+- **Platform**: Windows (`win32`), `Python 3.13.9`, `pytest 8.4.2`
+- **Total Collected**: `34` tests across 5 suites (`test_diagnose_and_cli_e2e.py`, `test_ir_and_mapper.py`, `test_m1_sim_viz_and_rph.py`, `test_preflight_and_assets.py`, `test_transpiler_and_deploy.py`)
+- **Result**: **34 passed, 0 failed** (`8.27s`)
+- **Clean-Room Hygiene**: `test_repository_clean_room_hygiene` PASSED (`0` binary violations, `0` personal machine paths)

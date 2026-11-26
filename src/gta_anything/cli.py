@@ -70,6 +70,9 @@ def cli(ctx: click.Context, json_output: bool) -> None:
                             "validate-ir",
                             "transpile",
                             "asset-check",
+                            "simulate",
+                            "visualize",
+                            "catalog",
                             "profile",
                             "diagnose",
                             "pipeline",
@@ -498,6 +501,133 @@ def diagnose_cmd(
     _emit(ctx, report, human, local_json)
 
 
+@cli.command("simulate")
+@click.argument("ir_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--track-id",
+    type=str,
+    default=None,
+    help="Optional track_id to simulate (defaults to the first track in routes_or_zones).",
+)
+@click.option(
+    "--inject-addon-timeout",
+    is_flag=True,
+    default=False,
+    help="Fault injection: simulate preferred add-on model streaming timeout and verify vanilla fallback + release.",
+)
+@click.option(
+    "--inject-abort-at-stop",
+    type=int,
+    default=None,
+    help="Fault injection: trigger guarded early abort at the given stop index and verify Teardown.",
+)
+@click.option(
+    "--telemetry-out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional path to write structured L1-L7 .jsonl simulation telemetry.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def simulate_cmd(
+    ctx: click.Context,
+    ir_path: Path,
+    track_id: str | None,
+    inject_addon_timeout: bool,
+    inject_abort_at_stop: int | None,
+    telemetry_out: Path | None,
+    local_json: bool,
+) -> None:
+    """Run headless offline 7-layer (L1-L7) Gameplay IR simulation with optional fault injection."""
+    from gta_anything.simulator.world_sim import simulate_gameplay_ir
+
+    ir = (
+        GameplayIR.from_json(ir_path.read_text(encoding="utf-8"))
+        if ir_path.is_file() and ir_path.suffix.lower() == ".json"
+        else extract_gameplay_ir(ir_path)
+    )
+    report = simulate_gameplay_ir(
+        ir,
+        track_id=track_id,
+        inject_addon_timeout=inject_addon_timeout,
+        inject_abort_at_stop=inject_abort_at_stop,
+        telemetry_out=telemetry_out,
+    )
+    human = [
+        f"[Simulate] ok={report.get('ok')} | mod_id={report.get('mod_id')} | track={report.get('track_id')}",
+        f"  Layers: L1..L{report.get('highest_acceptance_layer_reached')} | "
+        f"Stops: {report.get('stops_completed')}/{report.get('total_stops')} | "
+        f"Distance: {report.get('total_distance_m')}m | Reward: ${report.get('total_reward')}",
+        f"  Fallback used={report.get('used_vanilla_fallback')} | "
+        f"Timed-out models released={report.get('released_timed_out_models')} | "
+        f"Leases after teardown={report.get('active_leases_after_teardown')}",
+    ]
+    if report.get("telemetry_path"):
+        human.append(f"  Telemetry JSONL: {report.get('telemetry_path')}")
+    _emit(ctx, report, human, local_json)
+
+
+@cli.command("visualize")
+@click.argument("ir_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Output path for the standalone offline HTML radar & state-machine blueprint.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def visualize_cmd(
+    ctx: click.Context,
+    ir_path: Path,
+    output: Path,
+    local_json: bool,
+) -> None:
+    """Render a standalone offline GTA Radar & Gameplay IR State-Machine HTML dashboard."""
+    from gta_anything.visualizer.radar_html import render_ir_dashboard
+
+    ir = (
+        GameplayIR.from_json(ir_path.read_text(encoding="utf-8"))
+        if ir_path.is_file() and ir_path.suffix.lower() == ".json"
+        else extract_gameplay_ir(ir_path)
+    )
+    report = render_ir_dashboard(ir, output)
+    human = [
+        f"[Visualize] ok={report.get('ok')} | mod_id={report.get('mod_id')} | "
+        f"tracks={report.get('track_count')} | states={report.get('state_count')}",
+        f"  Dashboard HTML: {report.get('output_html')}",
+    ]
+    _emit(ctx, report, human, local_json)
+
+
+@cli.command("catalog")
+@click.option(
+    "--category",
+    type=str,
+    default=None,
+    help="Optional semantic category filter (e.g. transit, commercial, emergency, service, utility, sedan, dock_worker, civilian).",
+)
+@click.option("--json", "local_json", is_flag=True, default=False, help="Output JSON.")
+@click.pass_context
+def catalog_cmd(
+    ctx: click.Context,
+    category: str | None,
+    local_json: bool,
+) -> None:
+    """Inspect the built-in GTA V Vanilla World-Model Semantic Catalog (vehicles, peds, blips, zones)."""
+    from gta_anything.transpiler.world_mapper import list_world_catalog
+
+    report = list_world_catalog(category=category)
+    human = [
+        f"[Catalog] ok={report.get('ok')} | filter={report.get('category') or 'ALL'} | "
+        f"categories={', '.join(report.get('categories', []))}",
+        f"  Vehicles: {len(report.get('vehicles', {}))} | Peds: {len(report.get('peds', {}))} | "
+        f"Blips: {len(report.get('blips', {}))} | Zones: {len(report.get('zone_archetypes', {}))}",
+    ]
+    _emit(ctx, report, human, local_json)
+
+
 @cli.command("pipeline")
 @click.argument("source_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -505,7 +635,7 @@ def diagnose_cmd(
     "--output-dir",
     type=click.Path(path_type=Path),
     required=True,
-    help="Output directory for extracted IR, transpiled C# project, and verification artifacts.",
+    help="Output directory for extracted IR, transpiled C# project, simulation telemetry, and radar blueprint.",
 )
 @click.option(
     "--edition",
@@ -523,8 +653,10 @@ def pipeline_cmd(
     edition: str,
     local_json: bool,
 ) -> None:
-    """Run end-to-end offline pipeline: Extract -> Validate-IR -> Transpile -> Asset-Check."""
+    """Run end-to-end offline pipeline: Extract -> Validate-IR -> Transpile -> Asset-Check -> Simulate -> Visualize."""
     from gta_anything.assets.auditor import audit_assets
+    from gta_anything.simulator.world_sim import simulate_gameplay_ir
+    from gta_anything.visualizer.radar_html import render_ir_dashboard
 
     output_dir.mkdir(parents=True, exist_ok=True)
     ir = extract_gameplay_ir(source_path, target_edition=edition)
@@ -547,34 +679,66 @@ def pipeline_cmd(
     asset_target = source_path if source_path.is_dir() else source_path.parent
     asset_report = audit_assets(asset_target, target_edition=edition)
 
+    telemetry_path = output_dir / "simulation_telemetry.jsonl"
+    sim_report = (
+        simulate_gameplay_ir(ir, telemetry_out=telemetry_path)
+        if validation.valid
+        else {
+            "ok": False,
+            "mod_id": ir.meta.id,
+            "skipped": True,
+            "reason": "invalid_ir",
+            "telemetry_path": None,
+        }
+    )
+
+    radar_html_path = output_dir / "radar_blueprint.html"
+    viz_report = render_ir_dashboard(ir, radar_html_path)
+
     overall_ok = (
         validation.valid
         and bool(transpiled.get("ok", False))
         and bool(asset_report.get("ok", True))
+        and bool(sim_report.get("ok", False))
+        and bool(viz_report.get("ok", False))
     )
+    extract_stage = {
+        "ok": True,
+        "mod_id": ir.meta.id,
+        "evidence_count": len(ir.evidence),
+        "ir_path": str(ir_out_path),
+    }
+    validation_dict = validation.to_dict()
     payload = {
         "ok": overall_ok,
         "mod_id": ir.meta.id,
         "edition": edition,
         "output_dir": str(output_dir),
         "ir_path": str(ir_out_path),
+        "telemetry_path": sim_report.get("telemetry_path"),
+        "radar_html_path": viz_report.get("output_html"),
+        "extract": extract_stage,
+        "validation": validation_dict,
+        "transpile": transpiled,
+        "asset_check": asset_report,
+        "simulation": sim_report,
+        "visualization": viz_report,
         "stages": {
-            "extract": {
-                "ok": True,
-                "mod_id": ir.meta.id,
-                "evidence_count": len(ir.evidence),
-                "ir_path": str(ir_out_path),
-            },
-            "validate_ir": validation.to_dict(),
+            "extract": extract_stage,
+            "validate_ir": validation_dict,
             "transpile": transpiled,
             "asset_check": asset_report,
+            "simulation": sim_report,
+            "visualization": viz_report,
         },
     }
     human = [
         f"[Pipeline] ok={overall_ok} | mod_id={ir.meta.id} | edition={edition}",
-        f"  1. Extract:     ok=True ({len(ir.evidence)} evidence anchors) -> {ir_out_path}",
-        f"  2. Validate-IR: valid={validation.valid} (errors={len(validation.errors)}, warnings={len(validation.warnings)})",
-        f"  3. Transpile:   ok={transpiled.get('ok')} ({len(transpiled.get('generated_files', []))} files in {output_dir})",
-        f"  4. Asset-Check: ok={asset_report.get('ok')} (scanned={asset_report.get('scanned_files')} files)",
+        f"  1. Extract:       ok=True ({len(ir.evidence)} evidence anchors) -> {ir_out_path}",
+        f"  2. Validate-IR:   valid={validation.valid} (errors={len(validation.errors)}, warnings={len(validation.warnings)})",
+        f"  3. Transpile:     ok={transpiled.get('ok')} ({len(transpiled.get('generated_files', []))} files in {output_dir})",
+        f"  4. Asset-Check:   ok={asset_report.get('ok')} (scanned={asset_report.get('scanned_files')} files)",
+        f"  5. Simulation:    ok={sim_report.get('ok')} (L1..L{sim_report.get('highest_acceptance_layer_reached', 0)}, leases={sim_report.get('active_leases_after_teardown', 'n/a')}) -> {telemetry_path}",
+        f"  6. Visualization: ok={viz_report.get('ok')} -> {radar_html_path}",
     ]
     _emit(ctx, payload, human, local_json)

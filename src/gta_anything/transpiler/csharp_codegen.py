@@ -1,5 +1,7 @@
 """Clean-room C# transpiler generating `<ModClassName>.csproj`, `ModEntrypoint.cs`,
-`<ModClassName>Config.json`, and `BUILD_AND_VERIFY.md` targeting `GtaAnything.Runtime`.
+optional `RphPluginBridge.cs` (for `loader_target == "rph"`), 2D SVG menu preview cards
+(`cards/<track_id>_card.svg`), `<ModClassName>Config.json`, and `BUILD_AND_VERIFY.md`
+targeting `GtaAnything.Runtime`.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from typing import Any
 
 from gta_anything.models.ir import GameplayIR, validate_gameplay_ir
 from gta_anything.models.manifest import ACCEPTANCE_LAYERS
+from gta_anything.transpiler.card_renderer import generate_static_menu_cards
 from gta_anything.transpiler.world_mapper import map_ir_to_world
 
 
@@ -22,6 +25,12 @@ _PHASE_TO_RUNTIME_ENUM = {
     "operation": "OperationalPhase.ActiveOperation",
     "completion": "OperationalPhase.Completing",
     "cleanup": "OperationalPhase.Teardown",
+}
+
+_LOADER_TO_RUNTIME_ENUM = {
+    "shvdn_v3": "LoaderKind.ShvdnV3",
+    "shvdn_enhanced": "LoaderKind.ShvdnEnhanced",
+    "rph": "LoaderKind.RagePluginHook",
 }
 
 
@@ -84,6 +93,9 @@ def _render_csproj(
     <None Update="{mod_class_name}Config.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="cards\\**\\*.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
@@ -107,6 +119,7 @@ def _render_mod_entrypoint_cs(
     ui_binding = world_mapping["ui_binding"]
     hotkey_binding = world_mapping["hotkey_binding"]
     preview_enum = ui_binding["runtime_preview_enum"]
+    loader_enum = _LOADER_TO_RUNTIME_ENUM.get(ir.loader_target, "LoaderKind.ShvdnEnhanced")
 
     primary_veh = next(
         (
@@ -184,8 +197,8 @@ def _render_mod_entrypoint_cs(
     cards_block = "\n".join(card_lines)
     stops_block = "\n".join(stop_lines)
 
-    return f"""// Auto-generated Clean-Room GTA Mod by GTA-Anything v0.1.0
-// Mod ID: {ir.meta.id} | License: {ir.meta.license}
+    return f"""// Auto-generated Clean-Room GTA Mod by GTA-Anything v0.2.0
+// Mod ID: {ir.meta.id} | Loader Target: {ir.loader_target} | License: {ir.meta.license}
 // Architectural Invariants Enforced:
 //   1. UI-Spawn Decoupling (preview_mode = {ir.ui_spec.preview_mode}, never live_3d_spawn)
 //   2. SafeModelStreamer with mandatory ReleaseModelRequest on timeout + vanilla fallback ('{primary_veh["vanilla_fallback_model"]}')
@@ -226,6 +239,7 @@ namespace GtaAnything.Mods.{mod_class_name}
     {{
         public const string ModId = "{_cs_escape(ir.meta.id)}";
         public const string ModName = "{_cs_escape(ir.meta.name)}";
+        public const string LoaderTarget = "{_cs_escape(ir.loader_target)}";
         public const string PrimaryVanillaFallbackModel = "{_cs_escape(primary_veh["vanilla_fallback_model"])}";
         public const string PrimaryNpcFallbackModel = "{_cs_escape(ped_fallback)}";
         public const int DefaultStreamTimeoutMs = {int(primary_veh["stream_timeout_ms"])};
@@ -258,14 +272,14 @@ namespace GtaAnything.Mods.{mod_class_name}
 
         public ModEntrypoint(IGtaWorldHost host = null, string telemetryLogPath = null)
         {{
-            _host = host ?? new SimulatedGtaWorldHost();
+            _host = host ?? HostBridgeFactory.CreateDefaultHost({loader_enum});
             _logger = new PhasedJsonLogger(ModId, telemetryLogPath);
             _session = new WorldSession(_host);
             _streamer = new SafeModelStreamer(_host);
 
             var buildInfo = GameEditionDetector.DetectFromEnvironment();
             _logger.LogLayerReached(2, "loader_boot", "BuildDetected",
-                $"Edition={{buildInfo.Edition}}, Exe={{buildInfo.DiskExecutableVersion}}, SHV={{buildInfo.ScriptHookBuildAlias}}");
+                $"Edition={{buildInfo.Edition}}, Exe={{buildInfo.DiskExecutableVersion}}, SHV={{buildInfo.ScriptHookBuildAlias}}, Loader={{LoaderTarget}}");
 
             _stateMachine = new OperationalStateMachine(
                 initialState: "{_cs_escape(ir.state_machine.initial_state)}",
@@ -284,7 +298,7 @@ namespace GtaAnything.Mods.{mod_class_name}
             ConfigureMenuAndWaypoints();
 
             var chord = new HotkeyChord("{_cs_escape(hotkey_binding["activation_key"])}", {modifier_cs});
-            _loaderAdapter = new LoaderAdapter(_host, chord, LoaderKind.ShvdnEnhanced);
+            _loaderAdapter = new LoaderAdapter(_host, chord, {loader_enum});
             _loaderAdapter.OnActivationChordPressed += _ => OnActivationHotkeyPressed();
             _loaderAdapter.OnTick += OnTick;
             _loaderAdapter.OnAbort += OnAbort;
@@ -471,6 +485,99 @@ namespace GtaAnything.Mods.{mod_class_name}
 """
 
 
+def _render_rph_plugin_bridge_cs(
+    mod_class_name: str,
+    ir: GameplayIR,
+) -> str:
+    """Render clean-room RAGE Plugin Hook entrypoint bridge (`RphPluginBridge.cs`)."""
+    return f"""// Auto-generated Clean-Room RAGE Plugin Hook (RPH) Bridge by GTA-Anything v0.2.0
+// Mod ID: {ir.meta.id} | Loader Target: rph | License: {ir.meta.license}
+// Compiles cleanly under netstandard2.0 without bundling RAGEPluginHookSDK.dll.
+// Define RPH_REFERENCED when linking against a user-supplied local RPH SDK assembly.
+
+using System;
+using GtaAnything.Runtime.Compatibility;
+
+#if USE_RPH
+#if RPH_REFERENCED
+[assembly: Rage.Attributes.Plugin(
+    "{_cs_escape(ir.meta.name)}",
+    Description = "{_cs_escape(ir.meta.description or ir.meta.name)}",
+    Author = "{_cs_escape(ir.meta.author)}",
+    PrefersSingleInstance = true)]
+#endif
+
+namespace GtaAnything.Mods.{mod_class_name}
+{{
+    /// <summary>
+    /// Clean-room RAGE Plugin Hook fiber-safe plugin entrypoint and deterministic unload bridge.
+    /// Delegates lifecycle, streaming, and <c>WorldSession.DisposeAll()</c> teardown to <see cref="ModEntrypoint"/>.
+    /// </summary>
+    public static class RphPluginBridge
+    {{
+        private static ModEntrypoint _entrypoint;
+        private static volatile bool _running;
+
+        public static bool IsRunning => _running;
+
+        /// <summary>
+        /// RPH plugin entry method invoked by RAGEPluginHook.exe on plugin load.
+        /// </summary>
+        public static void Main()
+        {{
+            IGtaWorldHost host = HostBridgeFactory.CreateDefaultHost(LoaderKind.RagePluginHook);
+            _entrypoint = new ModEntrypoint(host);
+            _running = true;
+
+#if RPH_REFERENCED
+            Rage.GameFiber.StartNew(FiberLoop, "{mod_class_name}_MainFiber");
+#else
+            RunFiberStep();
+#endif
+        }}
+
+        /// <summary>
+        /// Executes a single fiber-safe frame tick against <see cref="ModEntrypoint"/>.
+        /// </summary>
+        public static void RunFiberStep()
+        {{
+            if (!_running || _entrypoint == null)
+            {{
+                return;
+            }}
+            _entrypoint.OnTick();
+        }}
+
+#if RPH_REFERENCED
+        private static void FiberLoop()
+        {{
+            while (_running)
+            {{
+                RunFiberStep();
+                Rage.GameFiber.Yield();
+            }}
+        }}
+#endif
+
+        /// <summary>
+        /// RPH plugin unload hook ensuring deterministic <c>WorldSession.DisposeAll()</c> cleanup
+        /// whenever the plugin is unloaded or GTA V exits.
+        /// </summary>
+        public static void OnUnload(bool isTerminating)
+        {{
+            _running = false;
+            if (_entrypoint != null)
+            {{
+                _entrypoint.Dispose();
+                _entrypoint = null;
+            }}
+        }}
+    }}
+}}
+#endif
+"""
+
+
 def _render_build_and_verify_md(
     mod_class_name: str,
     ir: GameplayIR,
@@ -485,9 +592,14 @@ def _render_build_and_verify_md(
         f"`{e['preferred_addon_model'] or 'None (Vanilla-First)'}` | `{e['stream_timeout_ms']} ms` |"
         for e in world_mapping["entity_bindings"]
     )
+    loader_note = (
+        "- **Loader Chain**: RAGE Plugin Hook (`USE_RPH`, `RphPluginBridge.cs` with fiber-safe loop & `OnUnload` deterministic teardown)."
+        if ir.loader_target == "rph"
+        else f"- **Loader Chain**: ScriptHookVDotNet (`USE_SHVDN`, target `{ir.loader_target}`)."
+    )
     return f"""# {ir.meta.name} (`{mod_class_name}`) — Build & 7-Layer Verification Guide
 
-> Generated by **GTA-Anything Clean-Room Transpiler** (`schema_version = {ir.schema_version}`).
+> Generated by **GTA-Anything Clean-Room Transpiler v0.2.0** (`schema_version = {ir.schema_version}`).
 
 ---
 
@@ -503,6 +615,8 @@ dotnet build {mod_class_name}.csproj -c Release -p:Edition=EnhancedGen9
 dotnet build {mod_class_name}.csproj -c Release -p:Edition=LegacyGen8
 ```
 
+{loader_note}
+
 ---
 
 ## 2. World-Model Entity Bindings (Vanilla-First Baseline)
@@ -511,7 +625,7 @@ dotnet build {mod_class_name}.csproj -c Release -p:Edition=LegacyGen8
 | :--- | :--- | :--- | :--- | :--- |
 {entity_rows}
 
-- **UI-Spawn Decoupling**: `preview_mode = "{ir.ui_spec.preview_mode}"` (`live_3d_spawn` blocked).
+- **UI-Spawn Decoupling**: `preview_mode = "{ir.ui_spec.preview_mode}"` (`live_3d_spawn` blocked; static 2D SVG cards generated in `cards/`).
 - **Stream Timeout Guard**: Timed-out add-on models invoke `ReleaseModelRequest` (`MarkAsNoLongerNeeded`) immediately before falling back to vanilla models.
 
 ---
@@ -588,11 +702,24 @@ def generate_csharp_mod(
         str(verify_doc_path),
     ]
 
+    if ir_obj.loader_target == "rph":
+        rph_bridge_path = out_path / "RphPluginBridge.cs"
+        rph_bridge_path.write_text(
+            _render_rph_plugin_bridge_cs(mod_class_name, ir_obj),
+            encoding="utf-8",
+        )
+        generated_files.append(str(rph_bridge_path))
+
+    card_files = generate_static_menu_cards(ir_obj, out_path)
+    generated_files.extend(card_files)
+
     return {
         "ok": True,
         "mod_id": ir_obj.meta.id,
         "mod_class_name": mod_class_name,
+        "loader_target": ir_obj.loader_target,
         "output_dir": str(out_path),
         "generated_files": generated_files,
+        "card_files": card_files,
         "world_mapping": world_mapping,
     }

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gta-anything"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-Native Gameplay Extraction, Clean-Room Transpilation, Asset Auditing & Reversible Deployment Framework for GTA Open-World Hosts (Gen9 Enhanced & Gen8 Legacy)"
 readme = "README.md"
 license = { text = "MIT" }

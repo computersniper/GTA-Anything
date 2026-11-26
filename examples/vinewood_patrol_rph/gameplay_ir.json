@@ -1,0 +1,218 @@
+{
+  "schema_version": "0.1.0",
+  "meta": {
+    "id": "vinewood_patrol_rph",
+    "name": "Vinewood Hills Patrol & Incident Response (RPH)",
+    "version": "0.2.0",
+    "author": "GTA-Anything Clean-Room",
+    "license": "MIT",
+    "description": "RAGE Plugin Hook (RPH) clean-room patrol and incident response loop spanning Vinewood Hills and Downtown Los Santos with static 2D unit cards, vanilla fallback vehicles (police3/fbi2), ranger field liaison NPC, and deterministic WorldSession OnUnload teardown.",
+    "source_kind": "spec_markdown",
+    "target_editions": [
+      "enhanced_gen9",
+      "legacy_gen8"
+    ]
+  },
+  "loader_target": "rph",
+  "inputs": {
+    "activation_key": "F10",
+    "modifier_key": "LeftControl",
+    "menu_library": "RAGENativeUI",
+    "avoid_conflicts_with": [
+      "F4",
+      "B",
+      "N",
+      "E",
+      "Y"
+    ]
+  },
+  "ui_spec": {
+    "title": "Vinewood Patrol Dispatch",
+    "subtitle": "Select RPH patrol unit & incident sector",
+    "preview_mode": "static_sprite"
+  },
+  "entities": [
+    {
+      "slot_id": "patrol_interceptor_primary",
+      "role": "player_service_vehicle",
+      "vanilla_fallback_model": "police3",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 5000,
+      "is_player_vehicle": true
+    },
+    {
+      "slot_id": "tactical_response_suv",
+      "role": "player_service_vehicle",
+      "vanilla_fallback_model": "fbi2",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 5000,
+      "is_player_vehicle": true
+    },
+    {
+      "slot_id": "ranger_field_liaison",
+      "role": "incident_coordinator_npc",
+      "vanilla_fallback_model": "s_m_y_ranger_01",
+      "preferred_addon_model": null,
+      "stream_timeout_ms": 3000,
+      "is_player_vehicle": false
+    }
+  ],
+  "routes_or_zones": [
+    {
+      "track_id": "vinewood_downtown_patrol",
+      "name": "Vinewood Hills & Downtown Incident Response Circuit",
+      "mode": "dispatch_zones",
+      "fare_or_reward": 150,
+      "allowed_vehicle_slots": [
+        "patrol_interceptor_primary",
+        "tactical_response_suv"
+      ],
+      "stops": [
+        {
+          "index": 0,
+          "name": "Vinewood Hills Observatory Overlook",
+          "x": -412.5,
+          "y": 1172.4,
+          "z": 325.8,
+          "dwell_seconds": 10
+        },
+        {
+          "index": 1,
+          "name": "Vinewood Sign Ridge Checkpoint",
+          "x": 732.1,
+          "y": 1285.6,
+          "z": 360.3,
+          "dwell_seconds": 8
+        },
+        {
+          "index": 2,
+          "name": "Vinewood Boulevard Precinct Staging",
+          "x": 618.4,
+          "y": 12.8,
+          "z": 82.8,
+          "dwell_seconds": 12
+        },
+        {
+          "index": 3,
+          "name": "Mission Row Downtown Response Hub",
+          "x": 428.9,
+          "y": -981.2,
+          "z": 30.7,
+          "dwell_seconds": 10
+        }
+      ]
+    }
+  ],
+  "state_machine": {
+    "initial_state": "Idle",
+    "cleanup_state": "Teardown",
+    "states": [
+      {
+        "name": "Idle",
+        "phase": "standby",
+        "description": "RPH plugin loaded and standing by for LeftControl+F10 dispatch menu hotkey."
+      },
+      {
+        "name": "MenuSelecting",
+        "phase": "ui",
+        "description": "Browsing Vinewood patrol sectors and 2D static_sprite unit cards without spawning 3D vehicles."
+      },
+      {
+        "name": "ResourceStreaming",
+        "phase": "streaming",
+        "description": "Streaming police3/fbi2 patrol vehicle and s_m_y_ranger_01 liaison NPC models with timeout release and vanilla fallback."
+      },
+      {
+        "name": "SpawningShift",
+        "phase": "spawning",
+        "description": "Spawning patrol unit at Vinewood Hills Observatory Overlook, verifying non-null handle, registering lease in WorldSession, and seating player."
+      },
+      {
+        "name": "ActivePatrol",
+        "phase": "operation",
+        "description": "Patrolling Vinewood Hills and Downtown incident response zones, checking in with ranger liaison NPC, and clearing calls."
+      },
+      {
+        "name": "ShiftSummary",
+        "phase": "completion",
+        "description": "Displaying patrol response summary and cleared zone stipend before RPH teardown."
+      },
+      {
+        "name": "Teardown",
+        "phase": "cleanup",
+        "description": "Deterministic WorldSession.DisposeAll() releasing all leased patrol vehicles, liaison NPCs, blips, and model handles (also wired to RPH OnUnload)."
+      }
+    ],
+    "transitions": [
+      {
+        "from_state": "Idle",
+        "to_state": "MenuSelecting",
+        "trigger": "HotkeyPressed"
+      },
+      {
+        "from_state": "MenuSelecting",
+        "to_state": "Idle",
+        "trigger": "MenuCancelled"
+      },
+      {
+        "from_state": "MenuSelecting",
+        "to_state": "ResourceStreaming",
+        "trigger": "ShiftConfirmed"
+      },
+      {
+        "from_state": "ResourceStreaming",
+        "to_state": "SpawningShift",
+        "trigger": "ModelReadyOrFallback"
+      },
+      {
+        "from_state": "ResourceStreaming",
+        "to_state": "Teardown",
+        "trigger": "CriticalStreamFailure"
+      },
+      {
+        "from_state": "SpawningShift",
+        "to_state": "ActivePatrol",
+        "trigger": "UnitStagedAndSeated"
+      },
+      {
+        "from_state": "SpawningShift",
+        "to_state": "Teardown",
+        "trigger": "SpawnReturnedNull"
+      },
+      {
+        "from_state": "ActivePatrol",
+        "to_state": "ShiftSummary",
+        "trigger": "PatrolCircuitCompleted"
+      },
+      {
+        "from_state": "ActivePatrol",
+        "to_state": "Teardown",
+        "trigger": "ShiftAbortedOrVehicleDestroyed"
+      },
+      {
+        "from_state": "ShiftSummary",
+        "to_state": "Teardown",
+        "trigger": "SummaryAcknowledged"
+      },
+      {
+        "from_state": "Teardown",
+        "to_state": "Idle",
+        "trigger": "ResourcesReleased"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "source_file": "spec.md",
+      "locator": "L15-L24",
+      "extracted_fact": "RPH patrol and incident response lifecycle: LeftControl+F10 static_sprite menu -> SafeModelStreamer (police3/fbi2 + s_m_y_ranger_01) -> 4 Vinewood/Downtown patrol zones -> ShiftSummary -> WorldSession OnUnload teardown.",
+      "confidence": 0.99
+    },
+    {
+      "source_file": "spec.md",
+      "locator": "L40-L44",
+      "extracted_fact": "4 Vinewood Hills & Downtown patrol/incident response zones (Observatory Overlook, Vinewood Sign Ridge, Vinewood Blvd Precinct, Mission Row Hub) with $150 stipend per cleared zone.",
+      "confidence": 0.98
+    }
+  ]
+}

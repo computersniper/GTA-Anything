@@ -17,7 +17,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-2E8B57?style=for-the-badge&logo=python&logoColor=white&labelColor=111111)](pyproject.toml)
 [![C# Runtime](https://img.shields.io/badge/C%23%20Runtime-netstandard2.0-FF8C00?style=for-the-badge&logo=dotnet&logoColor=white&labelColor=111111)](runtime/csharp/GtaAnything.Runtime)
 [![Target](https://img.shields.io/badge/Turf-GTA%20V%20Gen9%20%26%20Gen8-C41E3A?style=for-the-badge&labelColor=111111)](docs/ARCHITECTURE.md)  
-[![Tests](https://img.shields.io/badge/Mission%20Passed-25%2F25%20Tests-2E8B57?style=for-the-badge&labelColor=111111)](tests/TEST.md)
+[![Tests](https://img.shields.io/badge/Mission%20Passed-34%2F34%20Tests-2E8B57?style=for-the-badge&labelColor=111111)](tests/TEST.md)
 [![Wanted](https://img.shields.io/badge/Asset%20Gate-%E2%98%85%E2%98%85%E2%98%85%E2%98%85%E2%98%85-D4AF37?style=for-the-badge&labelColor=111111)](#wanted-gate)
 [![Agent-Native](https://img.shields.io/badge/Agent--Native-HARNESS%20%2B%20SKILL%20%2B%20--json-FF8C00?style=for-the-badge&labelColor=111111)](HARNESS.md)
 [![Clean-Room](https://img.shields.io/badge/Respect%20%2B-100%25%20Clean--Room-C41E3A?style=for-the-badge&labelColor=111111)](#code-of-the-streets)
@@ -41,6 +41,8 @@
 <a id="the-turf"></a>
 
 ## 🗺️ THE TURF · 为什么把洛圣都当作通用「世界模型街头基底」？
+
+<p align="center"><img src="docs/assets/world-builder-poster.jpg" alt="GTA-Anything — Build Your World Poster" width="88%" /></p>
 
 > 📟 *Lamar's pager:* "Yo homie, why you hand-rolling a whole city? The block's already poppin'."
 
@@ -204,7 +206,7 @@ flowchart LR
 pip install -e ".[dev]"
 ```
 
-### 2. 一脚油门跑完全链路 (`Extract -> Validate -> Transpile -> Asset-Check`)
+### 2. 一脚油门跑完全链路 (`Extract -> Validate -> Transpile -> Asset-Check -> Simulate -> Visualize`)
 
 ```bash
 gta-anything --json pipeline examples/metro_shuttle_loop/spec.md \
@@ -224,16 +226,25 @@ gta-anything --json extract examples/metro_shuttle_loop/spec.md -o build/metro_i
 # Phase 2: 静态校验 Gameplay IR 安全不变量（BFS Teardown 可达性 / 禁 3D 预览 / 原版兜底）
 gta-anything --json validate-ir examples/metro_shuttle_loop/gameplay_ir.json
 
-# Phase 3: 转译为洁净室 C# 模组工程（对接 GtaAnything.Runtime）
-gta-anything --json transpile examples/metro_shuttle_loop/gameplay_ir.json -o build/MetroShuttleLoop
+# Phase 3: 转译为洁净室 C# 模组工程（支持 SHVDN 与 RPH 双链 + 2D 静态 SVG 预览卡）
+gta-anything --json transpile examples/vinewood_patrol_rph/gameplay_ir.json -o build/VinewoodPatrolRph
 
 # Phase 4: 5-Gate 静态资产兼容审计（Gen9 .yft v171 / .ytd v5 / script_rt_* B8G8R8A8_UNORM）
 gta-anything --json asset-check examples/metro_shuttle_loop --edition enhanced_gen9
 
+# M1 离线无头街头仿真器 (Headless Street Simulator): 离线演练 L1-L7 验收与故障注入
+gta-anything --json simulate examples/vinewood_patrol_rph/gameplay_ir.json --telemetry-out build/sim_telemetry.jsonl
+
+# M1 洛圣都街头雷达蓝图 (Los Santos Radar Blueprint HTML): 生成零外链交互式拓扑仪表盘
+gta-anything --json visualize examples/vinewood_patrol_rph/gameplay_ir.json -o build/radar_blueprint.html
+
+# M1 原版街头目录 (Vanilla Street Catalog): 查询内置原版载具、NPC 与 Blip 预设
+gta-anything --json catalog --category emergency
+
 # Phase 6: 可逆 Profile 暂存、切换与回滚（支持 --dry-run 零写入演练）
 gta-anything --json profile stage transit --game-dir ./mock_gtav --build-dir build/MetroShuttleLoop --dry-run
 
-# Phase 7: 多日志关联归因诊断（联合分析 SHV + SHVDN + JSONL + 系统可提交内存）
+# Phase 7: 多日志关联归因诊断（联合分析 SHV + SHVDN + RPH + JSONL + 系统可提交内存）
 gta-anything --json diagnose logs/ScriptHookV.log logs/ScriptHookVDotNet.log --commit-mb 2048
 ```
 
@@ -247,7 +258,7 @@ dotnet build runtime/csharp/GtaAnything.Runtime/GtaAnything.Runtime.csproj -c Re
 dotnet build build/MetroShuttleLoop/MetroShuttleLoop.csproj -c Release -p:Edition=EnhancedGen9
 ```
 
-### 5. 任务结算 · 运行离线自动化测试 (`25/25 MISSION PASSED`)
+### 5. 任务结算 · 运行离线自动化测试 (`34/34 MISSION PASSED`)
 
 ```bash
 pytest -v
@@ -300,6 +311,7 @@ cp -r skills/gta-anything ~/.claude/skills/
 | :--- | :--- | :--- | :--- |
 | **Contract #01 · Downtown Transit Hustle**<br>*洛圣都环线巴士运营*<br>[`examples/metro_shuttle_loop/`](examples/metro_shuttle_loop/README.md) | 城市公共交通环线运营<br>*(Fixed-Route Urban Transit)* | `bus` / `airbus` + `a_m_y_business_01` | 8 站市中心环线 (`routes/ls_downtown_loop.xml`)、`static_sprite` 选线菜单、`SafeModelStreamer` 5000ms 超时回退、进站停靠计时、车门控制与乘客上下车、票价结算、`WorldSession` 收车全量清理 |
 | **Contract #02 · Elysian Island Dockside Run**<br>*港区货运调度执勤*<br>[`examples/harbor_courier_dispatch/`](examples/harbor_courier_dispatch/README.md) | 港区货运执勤与调度响应<br>*(On-Duty Dispatch & Verification)* | `mule` / `benson` + `s_m_m_dockwork_01` | 上班打卡 (`On-Duty`)、接警调度派单、驾驶货运卡车前往洛圣都港区核验点 (`routes/ls_port_zones.xml`)、与调度员 NPC 交互核验、结案计酬、下班一键释放全部租约句柄 |
+| **Contract #03 · Vinewood Hills Patrol Response (RPH)**<br>*好麦坞山巡逻与应急响应*<br>[`examples/vinewood_patrol_rph/`](examples/vinewood_patrol_rph/README.md) | RPH 巡逻与应急响应<br>*(RAGE Plugin Hook Dispatch)* | `police3` / `fbi2` + `s_m_y_ranger_01` | **RPH (`loader_target: "rph"`)** 后端示范、`static_sprite` 2D SVG 预览卡、Vinewood Hills & Downtown 4 大应急响应区、`SafeModelStreamer` 超时回退与 `OnUnload` 确定性 `WorldSession` 清理 |
 
 ## 📂 地盘总览 · 仓库目录结构 (Repository Tree)
 
@@ -324,13 +336,15 @@ GTA-Anything/
 │   ├── models/                            # GameplayIR, ValidationReport, DeploymentManifest
 │   ├── preflight/                         # 磁盘/可提交内存/双构建号/热键冲突预检器
 │   ├── extractor/                         # Markdown/XML/源码 证据锚点提取器
-│   ├── transpiler/                        # GTA 世界模型映射器与 C# 洁净室代码生成器
+│   ├── transpiler/                        # GTA 世界模型映射器、2D SVG 预览卡与 SHVDN/RPH 代码生成器
+│   ├── simulator/                         # 离线 7 层无头世界模型仿真器 (L1-L7 遥测与故障注入)
+│   ├── visualizer/                        # 零外链洛圣都雷达蓝图 & 状态机交互式 HTML 可视化器
 │   ├── assets/                            # 5-Gate Gen8/Gen9 RSC7/RSC8 资产静态审计器
 │   ├── deploy/                            # 可逆 Profile 隔离、文件锁与原子切换管理器
 │   └── diagnose/                          # SHV/SHVDN/RPH/JSONL 多日志关联诊断器
 ├── runtime/csharp/GtaAnything.Runtime/    # 洁净室 C# 运行时 SDK (netstandard2.0, 零专有二进制)
-├── examples/                              # 100% 洁净室原创双标杆示例 (公交环线 + 港区货运调度)
-└── tests/                                 # Pytest 25 项单元与 CLI 端到端测试套件 + TEST.md 报告
+├── examples/                              # 100% 洁净室原创三大标杆示例 (公交环线 + 港区调度 + RPH 巡逻)
+└── tests/                                 # Pytest 单元与 CLI 端到端测试套件 + TEST.md 报告
 ```
 
 <a id="roadmap"></a>
@@ -340,7 +354,7 @@ GTA-Anything/
 详细规划见 [`docs/ROADMAP.md`](docs/ROADMAP.md)：
 
 - [x] **`M0` · 🏠 拿下第一个街区 — 核心架构基座、Python CLI 引擎、C# 洁净室运行时与 Agent Skill (`v0.1.0`, 已完成)**：交付 `Gameplay IR v0.1`、8 阶段 `gta-anything --json` CLI、`GtaAnything.Runtime` C# SDK、5-Gate 资产静态审计器、可逆 Profile 管理器、多日志诊断器、两套原创标杆示例及 25 项自动化测试。
-- [ ] **`M1` · 🚗 双代际车队扩编 — GTA V Enhanced (Gen9) & Legacy (Gen8) 深度编译与双加载链扩展 (`v0.2.0`)**：接入 `.NET SDK` 自动编译产物 IL/JIT 静态引用检查、扩充 `RAGE Plugin Hook (RPH)` 后端适配器、内置全量原版语义字典与 2D Sprite 菜单预览卡打包脚手架。
+- [x] **`M1` · 🚗 双代际车队扩编 — 双加载链 (`SHVDN` + `RPH`)、无头仿真器、雷达蓝图与 2D 菜单卡 (`v0.2.0`, 离线闭环已完成)**：交付 `RAGE Plugin Hook (RPH)` 后端转译与 `HostBridges.cs`、扩展 `catalog` 原版语义字典、2D SVG 静态菜单卡、`simulate` 离线 7 层仿真器、`visualize` 洛圣都雷达 HTML 与第 3 套示例 `vinewood_patrol_rph`（实机 `.NET SDK` 编译校验待后续接入）。
 - [ ] **`M2` · 🕵️ 情报网扩张 — 多源逆向提取器 (`REA` 联动) 与资产转换自动化 (`v0.3.0`)**：集成 Tree-sitter AST 解析器与 MCP 逆向桥接接口、对接外部资产批处理工具链（Gen8 → Gen9 `script_rt_*` 单 mip `B8G8R8A8_UNORM` 自动重编码脚手架）及 Web 状态拓扑预览器。
 - [ ] **`M3` · 🌐 全城地盘 — 跨载体世界模型生态与社区 Hub (`GTA-Anything Hub`, `v0.4.0`)**：支持输出 FiveM / RAGE MP 目标后端、抽象跨代 `WorldHostAdapter` 接口，构建零专有二进制分发的洁净室玩法包注册表。
 
